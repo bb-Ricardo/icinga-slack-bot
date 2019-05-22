@@ -12,6 +12,8 @@ import ssl as ssl_lib
 import certifi
 import slack
 
+from icinga2api.client import Client as i2_client
+
 # use while debugging
 import pprint
 
@@ -19,6 +21,11 @@ __version__ = "0.0.1"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 
 SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
+
+ICINGA2_HOST = os.environ["ICINGA2_HOST"]
+ICINGA2_PORT = os.environ["ICINGA2_PORT"]
+ICINGA2_USER = os.environ["ICINGA2_USER"]
+ICINGA2_PASS = os.environ["ICINGA2_PASS"]
 
 MENTION_REGEX = "^<@(|[WU].+?)>(.*)"
 
@@ -40,10 +47,10 @@ async def handle_command(slack_message):
 
     """DESCRIPTION
     """
-    
+
     response_text = None
     default_response_text = "I didn't understand the command. Please use 'help' for more details."
-    
+
     matches = re.search(MENTION_REGEX, slack_message)
     if matches:
         slack_message = matches.group(2).strip()
@@ -59,12 +66,31 @@ async def handle_command(slack_message):
         response_text = "All services are OK"
 
     elif slack_message.startswith("host status") or slack_message.startswith("hs"):
-        response_text = "All hosts are OK"
 
-    pprint.pprint(slack_message)
-    
+        i2_response = icinga2_client.objects.list('Host', attrs=['name', 'state'])
+
+        host_problems = list()
+        host_problems.append({'name': "TEST Server", "state": 1})
+
+        for host in i2_response:
+            host_atr = host.get("attrs")
+
+            if host_atr.get("state") and host_atr.get("state") != HOST_STATE.UP:
+                host_problems.append(host_atr)
+                pprint.pprint(host_atr.get("name"))
+
+        # no host problems
+        if len(host_problems) == 0:
+            response_text = ("Good news, all %d hosts are UP" % len(i2_response))
+        else:
+            response_text = "Sorry, these Hosts having problems:"
+            for host in host_problems:
+                response_text += ("\n\t%s is in status %s" % (host.get("name"), HOST_STATE.reverse[host.get("state")]))
+
+        pprint.pprint(response_text)
+
     return response_text or default_response_text
-    
+
 
 @slack.RTMClient.run_on(event="message")
 async def message(**payload):
@@ -97,9 +123,12 @@ if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logging.StreamHandler())
 
+    # set up icinga
+    icinga2_client = i2_client("https://" + ICINGA2_HOST + ":" + ICINGA2_PORT, ICINGA2_USER, ICINGA2_PASS)
+
     # set up slack
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
-    
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     rtm_client = slack.RTMClient(

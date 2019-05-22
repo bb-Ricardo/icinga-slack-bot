@@ -9,3 +9,5 @@
 * request service status
 * acknowledge problems
 * proper message formatting
+* add systemd unit file
+* add README.md
