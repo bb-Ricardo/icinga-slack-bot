@@ -27,7 +27,7 @@ import pprint
 
 import certifi
 import slack
-from icinga2api.client import Client as i2_client
+from icinga2api.client import Client as i2_client, Icinga2ApiException
 
 
 __version__ = "0.0.1"
@@ -212,13 +212,98 @@ def enum(*sequential, **named):
     return type('Enum', (), enums)
 
 
-HOST_STATE = enum("UP", "DOWN", "UNREACHABLE")
-SERVICE_STATE = enum("OK", "WARNING", "CRITICAL", "UNKNWON")
+def setup_icinga_connection():
+    global config
 
+    i2_handle = None
+
+    try:
+        i2_handle = i2_client(url="https://" + config["icinga.hostname"] + ":" + config["icinga.port"], \
+                              username=config["icinga.username"], \
+                              password=config["icinga.password"])
+
+    except Icinga2ApiException as e:
+        log.error("Unable to set up Icinga2 connection: %s" % str(e))
+
+    return i2_handle
+
+def get_i2_status():
+
+    i2_response = None
+
+    i2_handle = setup_icinga_connection()
+
+    if not i2_handle:
+        return None
+
+    try:
+        i2_response = i2_handle.status.list()
+    except Exception as e:
+        log.error("Unable to query Icinga2 status: %s" % str(e))
+
+    return i2_response
+
+def get_i2_object(type="Host",filter=None):
+
+    i2_response = None
+
+    i2_handle = setup_icinga_connection()
+
+    if not i2_handle:
+        return None
+
+    list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change']
+    if type is "Service":
+        list_attrs.append("host_name")
+
+    try:
+        i2_response =  i2_handle.objects.list(type) #, attrs=list_attrs)
+    except Exception as e:
+        log.error("Unable to query Icinga2 status: %s" % str(e))
+
+    return i2_response
+
+def query_i2(type=None ,filter=None):
+
+    type_sring = "host"
+    object_states = enum("UP", "DOWN", "UNREACHABLE")
+    problems = list()
+    response_text = ""
+
+    if not type:
+        return None
+
+    if type is "Service":
+        type_sring = "service"
+        object_states = enum("OK", "WARNING", "CRITICAL", "UNKNWON")
+
+    i2_response = get_i2_object(type)
+
+    for object in i2_response:
+        object_atr = object.get("attrs")
+
+        if object_atr.get("state") and object_atr.get("state") != 0:
+            problems.append(object_atr)
+
+    # no service problems
+    if len(problems) == 0:
+        response_text = ("Good news, all %d %s are %s" % (len(i2_response), type_sring, object_states.reverse[0]))
+    else:
+        response_text = "Sorry, these %s having problems:" % type_sring
+        for object in problems:
+            last_check = object.get("last_check_result")
+            if type is "Host":
+                response_text += ("\n\t%s is in status %s" % (
+                                  object.get("name"), object_states.reverse[object.get("state")]))
+            else:
+                response_text += ("\n\t%s: %s is in status %s" % (
+                                  object.get("host_name"), object.get("name"),
+                                  object_states.reverse[object.get("state")]))
+            response_text += ("\n\t\t%s" % (last_check.get("output")))
+
+    return response_text
 
 async def handle_command(slack_message):
-    global icinga2_client
-    global HOST_STATE, SERVICE_STATE
 
     """DESCRIPTION
     """
@@ -238,29 +323,14 @@ async def handle_command(slack_message):
         """
 
     elif slack_message.startswith("service status") or slack_message.startswith("ss"):
-        response_text = "All services are OK"
+
+        response_text = query_i2("Service")
+
+        pprint.pprint(response_text)
 
     elif slack_message.startswith("host status") or slack_message.startswith("hs"):
 
-        i2_response = icinga2_client.objects.list('Host', attrs=['name', 'state'])
-
-        host_problems = list()
-        host_problems.append({'name': "TEST Server", "state": 1})
-
-        for host in i2_response:
-            host_atr = host.get("attrs")
-
-            if host_atr.get("state") and host_atr.get("state") != HOST_STATE.UP:
-                host_problems.append(host_atr)
-                pprint.pprint(host_atr.get("name"))
-
-        # no host problems
-        if len(host_problems) == 0:
-            response_text = ("Good news, all %d hosts are UP" % len(i2_response))
-        else:
-            response_text = "Sorry, these Hosts having problems:"
-            for host in host_problems:
-                response_text += ("\n\t%s is in status %s" % (host.get("name"), HOST_STATE.reverse[host.get("state")]))
+        response_text = query_i2("Host")
 
         pprint.pprint(response_text)
 
@@ -313,7 +383,7 @@ if __name__ == "__main__":
         do_error_exit("Config parsing error")
 
     # set up icinga
-    icinga2_client = i2_client("https://" + config["icinga.hostname"] + ":" + config["icinga.port"], config["icinga.username"], config["icinga.password"])
+    get_i2_status()
 
     # set up slack
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
