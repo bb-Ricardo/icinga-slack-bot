@@ -14,7 +14,7 @@ import logging
 import asyncio
 import ssl as ssl_lib
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-
+import configparser
 
 # use while debugging
 import pprint
@@ -43,13 +43,6 @@ __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 default_log_level = "INFO"
 default_config_file_path = "./icinga-bot.ini"
 
-SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
-
-ICINGA2_HOST = os.environ["ICINGA2_HOST"]
-ICINGA2_PORT = os.environ["ICINGA2_PORT"]
-ICINGA2_USER = os.environ["ICINGA2_USER"]
-ICINGA2_PASS = os.environ["ICINGA2_PASS"]
-
 #################
 #
 #   INTERNAL VARS
@@ -65,6 +58,7 @@ valid_log_levels = [ "DEBUG", "INFO", "WARNING", "ERROR"]
 
 args = None
 log = None
+config = None
 
 
 #################
@@ -87,6 +81,82 @@ def parse_command_line():
                         help="define if the script is run as a systemd daemon")
 
     return parser.parse_args()
+
+def parse_own_config(config_file):
+
+    config_dict = {}
+
+    global log, args
+
+    config_error = False
+
+    log.debug("Parsing daemon config file: %s" % config_file)
+
+    if config_file == None or config_file == "":
+        do_error_exit("Config file not defined.")
+
+    # setup config parser and read config
+    config_handler = configparser.ConfigParser(strict=True, allow_no_value=True)
+
+    try:
+        config_handler.read_file(open(config_file))
+    except configparser.Error as e:
+        do_error_exit("Error during config file parsing: %s" % e )
+    except:
+        do_error_exit("Unable to open file '%s'" % config_file )
+
+    # read logging section
+    this_section = "main"
+    if not this_section in config_handler.sections():
+        log.warning("Section '%s' not found in '%s'" % (this_section, config_file) )
+
+    # read logging if present
+    config_dict["log_level"] = config_handler.get(this_section, "log_level", fallback=default_log_level)
+
+    log.debug("Config: %s = %s" % ("log_level", config_dict["log_level"]))
+
+    # overwrite log level with command line argument
+    if args.log_level != None and args.log_level != "":
+        config_dict["log_level"] = args.log_level
+        log.debug("Config: overwriting log_level with command line arg: %s" % args.log_level)
+
+    # set log level again
+    if args.log_level is not config_dict["log_level"]:
+        setup_logging(config_dict["log_level"])
+
+    # read common section
+    this_section = "slack"
+    if not this_section in config_handler.sections():
+        do_error_exit("Section '%s' not found in '%s'" % (this_section, config_file) )
+    else:
+        config_dict["slack.bot_tocken"] = config_handler.get(this_section, "bot_tocken", fallback="")
+        log.debug("Config: %s = %s" % ("slack.bot_tocken", config_dict["slack.bot_tocken"]))
+        config_dict["slack.default_channel"] = config_handler.get(this_section, "default_channel", fallback="")
+        log.debug("Config: %s = %s" % ("slack.default_channel", config_dict["slack.default_channel"]))
+
+    # read paths section
+    this_section = "icinga"
+    if not this_section in config_handler.sections():
+        do_error_exit("Section '%s' not found in '%s'" % (this_section, config_file) )
+    else:
+        config_dict["icinga.hostname"] = config_handler.get(this_section, "hostname", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.hostname", config_dict["icinga.hostname"]))
+        config_dict["icinga.port"] = config_handler.get(this_section, "port", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.port", config_dict["icinga.port"]))
+        config_dict["icinga.username"] = config_handler.get(this_section, "username", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.username", config_dict["icinga.username"]))
+        config_dict["icinga.password"] = config_handler.get(this_section, "password", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.password", config_dict["icinga.password"]))
+
+    for key, value in config_dict.items():
+        if value is "":
+            log.error("Config: option '%s' undefined or empty!" % key)
+            config_error = True
+
+    if config_error:
+        return False
+
+    return config_dict
 
 # log an error and exit with error level 1
 def do_error_exit(log_text):
@@ -235,8 +305,15 @@ if __name__ == "__main__":
 
     log.info("Starting " + self_description)
 
+    ################
+    #   parse config file(s)
+    config = parse_own_config(args.config_file)
+
+    if not config:
+        do_error_exit("Config parsing error")
+
     # set up icinga
-    icinga2_client = i2_client("https://" + ICINGA2_HOST + ":" + ICINGA2_PORT, ICINGA2_USER, ICINGA2_PASS)
+    icinga2_client = i2_client("https://" + config["icinga.hostname"] + ":" + config["icinga.port"], config["icinga.username"], config["icinga.password"])
 
     # set up slack
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
@@ -244,7 +321,7 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     rtm_client = slack.RTMClient(
-        token=SLACK_BOT_TOKEN, ssl=slack_ssl_context, run_async=True, loop=loop
+        token=config["slack.bot_tocken"], ssl=slack_ssl_context, run_async=True, loop=loop
     )
     loop.run_until_complete(rtm_client.start())
 
