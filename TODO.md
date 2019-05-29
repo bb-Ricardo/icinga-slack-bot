@@ -13,4 +13,3 @@
 * proper icinga2 error handling
 * add tactical overview (tac) command
 * add limit of max returned results
-* add icinga notification handler
