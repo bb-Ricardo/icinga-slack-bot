@@ -301,50 +301,18 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
 
 def query_i2(type=None, filter=None, names=None):
 
-    type_sring = "host"
-    object_states = enum("UP", "DOWN", "UNREACHABLE")
     response_objects = list()
-    response_text = ""
 
     if not type:
         return None
-
-    if type is "Service":
-        type_sring = "service"
-        object_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
 
     i2_response, i2_error = get_i2_object(type, filter, names)
 
     if i2_response:
         for object in i2_response:
-            #pprint.pprint(object)
             response_objects.append(object.get("attrs"))
 
-    # no service problems
-    if len(response_objects) == 0:
-        #response_text = ("Good news, all %d %s are %s" % (len(i2_response), type_sring, object_states.reverse[0]))
-        response_text = "Your command returned no results"
-    else:
-
-        # sort
-        if type is "Host":
-            response_objects = sorted(response_objects, key=lambda k: k['name'])
-        else:
-            response_objects = sorted(response_objects, key=lambda k: (k['host_name'], k['name']))
-
-        response_text = "found %d %s objects:" % ( len(response_objects), type_sring )
-        for object in response_objects:
-            last_check = object.get("last_check_result")
-            if type is "Host":
-                response_text += ("\n\t%s is in status %s" % (
-                                  object.get("name"), object_states.reverse[object.get("state")]))
-            else:
-                response_text += ("\n\t%s: %s is in status %s" % (
-                                  object.get("host_name"), object.get("name"),
-                                  object_states.reverse[object.get("state")]))
-            response_text += ("\n\t\t%s" % (last_check.get("output")))
-
-    return response_text
+    return response_objects
 
 def get_i2_filter(type="Host", message=""):
 
@@ -434,12 +402,67 @@ def get_i2_filter(type="Host", message=""):
 
     return (filter_states, filter_options, filter_error)
 
+def get_service_block(host, services):
+    text = "*%s* (%d services)\n\t%s" % (host, len(services), "\n\n\t".join(services))
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+    ]
+
+def get_single_block(text):
+#   {"type": "divider"},
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+    ]
+
+
+def format_response(type="Host", response_objects = list()):
+
+    response_blocks = None
+    current_host = None
+    service_list = []
+
+    # no service problems
+    if len(response_objects) is not 0:
+
+        # sort
+        if type is "Host":
+            response_objects = sorted(response_objects, key=lambda k: k['name'])
+            object_states = enum("UP", "DOWN", "UNREACHABLE")
+            object_emojies = enum(":white_check_mark:", ":red_circle:", ":red_circle:")
+        else:
+            response_objects = sorted(response_objects, key=lambda k: (k['host_name'], k['name']))
+            object_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
+            object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
+
+        #response_text = "found %d %ss objects:" % ( len(response_objects), type.lower() )
+
+        response_blocks = []
+        for object in response_objects:
+            last_check = object.get("last_check_result")
+            if type is "Host":
+                text = "%s %s: %s" % (object_emojies.reverse[object.get("state")], object.get("name"), last_check.get("output"))
+                response_blocks.extend(get_single_block(text))
+            else:
+                if current_host and current_host != object.get("host_name"):
+                    response_blocks.extend(get_service_block(current_host, service_list))
+                    service_list = []
+
+                current_host = object.get("host_name")
+                service_list.append("%s %s: %s" % (object_emojies.reverse[object.get("state")], object.get("name"), last_check.get("output")))
+        else:
+            if type is not "Host":
+                response_blocks.extend(get_service_block(current_host, service_list))
+
+    return response_blocks or get_single_block("Your command returned no results")
+
+
 async def handle_command(slack_message):
 
     """DESCRIPTION
     """
 
     response_text = None
+    response_blocks = None
     query_icinga = False
     default_response_text = "I didn't understand the command. Please use 'help' for more details."
 
@@ -451,14 +474,14 @@ async def handle_command(slack_message):
     slack_message = slack_message.lower()
 
     if slack_message.startswith("ping"):
-        response_text = "pong"
+        response_blocks = get_single_block("pong")
 
     elif slack_message.startswith("help"):
-        response_text = """Following commands are implemented:
+        response_blocks = get_single_block("""Following commands are implemented:
         help:                   this help
         service status (ss):    display service status of all services in non OK state
         host status (hs):       display host status of all hosts in non UP state
-        """
+        """)
 
     elif slack_message.startswith("service status") or slack_message.startswith("ss"):
 
@@ -489,13 +512,14 @@ async def handle_command(slack_message):
 
         if i2_filter_error:
             if len(i2_filter_error) == 1:
-                response_text = "filter '%s' not valid for %s status commands, check 'help' command" % (i2_filter_error[0], status_type)
+                response_blocks = get_single_block("filter '%s' not valid for %s status commands, check 'help' command" % (i2_filter_error[0], status_type))
             else:
-                response_text = "filters '%s' and '%s' are not valid for %s status commands, check 'help' command" % ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type)
+                response_blocks = get_single_block("filters '%s' and '%s' are not valid for %s status commands, check 'help' command" % ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type))
         else:
-            response_text = query_i2(status_type, i2_filter_status, i2_filter_names)
+            response_objets = query_i2(status_type, i2_filter_status, i2_filter_names)
+            response_blocks = format_response(status_type, response_objets)
 
-    return response_text or default_response_text
+    return response_blocks or get_single_block(default_response_text)
 
 
 @slack.RTMClient.run_on(event="message")
@@ -517,10 +541,16 @@ async def message(**payload):
         # parse command
         response = await handle_command(data.get("text"))
 
-        web_client.chat_postMessage(
-            channel=channel_id,
-            text=response
-        )
+        try:
+            web_client.chat_postMessage(
+                channel=channel_id,
+                blocks=response
+            )
+        except slack.errors.SlackApiError as e:
+            web_client.chat_postMessage(
+                channel=channel_id,
+                text=str(e)
+            )
 
     return
 
