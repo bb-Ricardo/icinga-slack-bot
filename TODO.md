@@ -3,7 +3,7 @@
 * check icinga connection
 * configure default channel to post after bot start
 * acknowledge problems
-* proper message formatting
+* ~proper message formatting~
 * add systemd unit file
 * add README.md
 * fix logging
@@ -13,3 +13,4 @@
 * proper icinga2 error handling
 * add tactical overview (tac) command
 * add limit of max returned results
+* add all icinga2api connection options (ca, cert, key, timeout)
