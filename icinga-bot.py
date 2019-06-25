@@ -23,6 +23,7 @@ import asyncio
 import ssl as ssl_lib
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import configparser
+import json
 
 # use while debugging
 import pprint
@@ -41,6 +42,7 @@ from icinga2api.client import Client as I2Client, Icinga2ApiException
 __version__ = "0.0.1"
 __version_date__ = "2019-05-28"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
+__description__ = "Icinga2 Slack bot"
 
 
 #################
@@ -292,8 +294,9 @@ def setup_icinga_connection():
                             )
 
     except Icinga2ApiException as e:
-        # implement error handling
-        log.error("Unable to set up Icinga2 connection: %s" % str(e))
+        i2_error = str(e)
+        log.error("Unable to set up Icinga2 connection: %s" % i2_error)
+        pass
 
     return i2_handle, i2_error
 
@@ -313,13 +316,18 @@ def get_i2_status():
     i2_handle, i2_error  = setup_icinga_connection()
 
     if not i2_handle:
-        return None
+        if i2_error is not None:
+            return None, i2_error
+        else:
+            return None, "Unknown error while setting up Icinga2 connection"
 
     try:
         i2_response = i2_handle.status.list()
+
     except Exception as e:
-        # implement error handling
-        log.error("Unable to query Icinga2 status: %s" % str(e))
+        i2_error = str(e)
+        log.error("Unable to query Icinga2 status: %s" % i2_error)
+        pass
 
     return i2_response, i2_error
 
@@ -351,12 +359,15 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
     i2_handle, i2_error = setup_icinga_connection()
 
     if not i2_handle:
-        return None
+        if i2_error is not None:
+            return None, i2_error
+        else:
+            return None, "Unknown error while setting up Icinga2 connection"
 
-    # default attributes
+    # default attributes to query
     list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change']
 
-    # add host_name to attribute list
+    # add host_name to attribute list if services are requested
     if type is "Service":
         list_attrs.append("host_name")
 
@@ -388,51 +399,37 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
     logging.debug("Filter: %s" % i2_filters)
 
     try:
-        i2_response =  i2_handle.objects.list(type, attrs=list_attrs, filters=i2_filters)
-    except Exception as e:
-        log.error("Unable to query Icinga2 status: %s" % str(e))
-        if "404" in str(e):
-            i2_error = "No objects found"
+        i2_response = i2_handle.objects.list(type, attrs=list_attrs, filters=i2_filters)
+
+    except Icinga2ApiException as e:
+        i2_error = str(e)
+        if "failed with status" in i2_error:
+            error = i2_error.split(" failed with status ")[1]
+            return_code, icinga_return = error.split(":", 1)
+            icinga_return = json.loads(icinga_return)
+            i2_error = "Error %s: %s" % ( return_code, icinga_return.get("status"))
+
+            if int(return_code) == 404:
+                i2_response = "No match for %s" % filter_states
+                if filter_names:
+                    i2_response += " and %s" % filter_names
+                i2_response += " found."
+
+                i2_error = None
             pass
 
-    return i2_response, i2_error
+    except Exception as e:
+        i2_error = str(e)
+        log.error("Unable to query Icinga2 status: %s" % i2_error)
+        pass
 
-def query_i2(type=None, filter_states=None, filter_names=None):
-    """Request Icinga2 API Endpoint /v1/objects
-
-    Parameters
-    ----------
-    type : str
-        the object type to request (Host or Service)
-    filter_states : list, optional
-        a list of object states to filter for, use function "get_i2_filter"
-        to generate this list (default is None)
-    filter_names : list, optional
-        a list of object names to filter for, use function "get_i2_filter"
-        to generate this list (default is None)
-
-    Returns
-    -------
-    list
-        returns a list of requested objects
-
-    ToDo
-    ----
-    this function can probably be scrapped an be integrated into get_i2_object
-    """
-
-    response_objects = list()
-
-    if not type:
-        return None
-
-    i2_response, i2_error = get_i2_object(type, filter_states, filter_names)
-
-    if i2_response:
+    if i2_error is None and i2_response is not None and isinstance(i2_response, list):
+        response_objects = list()
         for object in i2_response:
             response_objects.append(object.get("attrs"))
+        i2_response = response_objects
 
-    return response_objects
+    return i2_response, i2_error
 
 def get_i2_filter(type="Host", slack_message=""):
     """Parse a Slack message and create lists of filters depending on the
@@ -580,7 +577,6 @@ def get_single_block(text):
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
-
 def format_response(type="Host", response_objects = list()):
     """Format a slack response
 
@@ -716,9 +712,16 @@ async def handle_command(slack_message):
                 response_blocks = get_single_block("filter '%s' not valid for %s status commands, check 'help' command" % (i2_filter_error[0], status_type))
             else:
                 response_blocks = get_single_block("filters '%s' and '%s' are not valid for %s status commands, check 'help' command" % ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type))
+
         else:
-            response_objects = query_i2(status_type, i2_filter_status, i2_filter_names)
-            response_blocks = format_response(status_type, response_objects)
+            i2_response, i2_error = get_i2_object(status_type, i2_filter_status, i2_filter_names)
+
+            if i2_error:
+                response_blocks = get_single_block("Icinga request error: %s" % i2_error)
+            elif type(i2_response) is str:
+                response_blocks =  get_single_block(i2_response)
+            else:
+                response_blocks = format_response(status_type, i2_response)
 
     return response_blocks or get_single_block(default_response_text)
 
@@ -780,7 +783,7 @@ if __name__ == "__main__":
     #   setup logging
     log = setup_logging(args.log_level)
 
-    log.info("Starting " + self_description)
+    log.info("Starting " + __description__)
 
     ################
     #   parse config file(s)
