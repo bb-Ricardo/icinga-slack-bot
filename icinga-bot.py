@@ -35,7 +35,7 @@ import pprint
 
 import certifi
 import slack
-from icinga2api.client import Client as i2_client, Icinga2ApiException
+from icinga2api.client import Client as I2Client, Icinga2ApiException
 
 
 __version__ = "0.0.1"
@@ -50,6 +50,7 @@ __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 
 default_log_level = "INFO"
 default_config_file_path = "./icinga-bot.ini"
+default_connection_timeout = 5
 
 #################
 #
@@ -96,12 +97,12 @@ def parse_own_config(config_file):
     Parameters
     ----------
     config_file : str
-        The file location of the confif file
+        The file location of the config file
 
     Returns
     -------
     dict
-        a dictonary with all config options parsed from the config file
+        a dictionary with all config options parsed from the config file
     """
 
     config_dict = {}
@@ -112,7 +113,7 @@ def parse_own_config(config_file):
 
     log.debug("Parsing daemon config file: %s" % config_file)
 
-    if config_file == None or config_file == "":
+    if config_file is None or config_file == "":
         do_error_exit("Config file not defined.")
 
     # setup config parser and read config
@@ -136,7 +137,7 @@ def parse_own_config(config_file):
     log.debug("Config: %s = %s" % ("log_level", config_dict["log_level"]))
 
     # overwrite log level with command line argument
-    if args.log_level != None and args.log_level != "":
+    if args.log_level is not None and args.log_level != "":
         config_dict["log_level"] = args.log_level
         log.debug("Config: overwriting log_level with command line arg: %s" % args.log_level)
 
@@ -149,8 +150,8 @@ def parse_own_config(config_file):
     if not this_section in config_handler.sections():
         do_error_exit("Section '%s' not found in '%s'" % (this_section, config_file) )
     else:
-        config_dict["slack.bot_tocken"] = config_handler.get(this_section, "bot_tocken", fallback="")
-        log.debug("Config: %s = %s" % ("slack.bot_tocken", config_dict["slack.bot_tocken"]))
+        config_dict["slack.bot_token"] = config_handler.get(this_section, "bot_token", fallback="")
+        log.debug("Config: %s = %s" % ("slack.bot_token", config_dict["slack.bot_token"]))
         config_dict["slack.default_channel"] = config_handler.get(this_section, "default_channel", fallback="")
         log.debug("Config: %s = %s" % ("slack.default_channel", config_dict["slack.default_channel"]))
 
@@ -166,10 +167,26 @@ def parse_own_config(config_file):
         config_dict["icinga.username"] = config_handler.get(this_section, "username", fallback="")
         log.debug("Config: %s = %s" % ("icinga.username", config_dict["icinga.username"]))
         config_dict["icinga.password"] = config_handler.get(this_section, "password", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.password", config_dict["icinga.password"]))
+        #log.debug("Config: %s = %s" % ("icinga.password", config_dict["icinga.password"]))
+        config_dict["icinga.web2_url"] = config_handler.get(this_section, "web2_url", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.web2_url", config_dict["icinga.web2_url"]))
+        config_dict["icinga.certificate"] = config_handler.get(this_section, "certificate", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.certificate", config_dict["icinga.certificate"]))
+        config_dict["icinga.key"] = config_handler.get(this_section, "key", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.key", config_dict["icinga.key"]))
+        config_dict["icinga.ca_certificate"] = config_handler.get(this_section, "ca_certificate", fallback="")
+        log.debug("Config: %s = %s" % ("icinga.ca_certificate", config_dict["icinga.ca_certificate"]))
+        config_dict["icinga.timeout"] = config_handler.get(this_section, "timeout", fallback=str(default_connection_timeout))
+        log.debug("Config: %s = %s" % ("icinga.timeout", config_dict["icinga.timeout"]))
 
     for key, value in config_dict.items():
         if value is "":
+            # if we use a certificate then don't care if user or password are defined
+            if key in [ "icinga.username", "icinga.password" ] and config_dict["icinga.certificate"] != "":
+                continue
+            # these vars can be empty
+            if key in [ "icinga.key", "icinga.certificate", "icinga.web2_url", "icinga.ca_certificate" ]:
+                continue
             log.error("Config: option '%s' undefined or empty!" % key)
             config_error = True
 
@@ -214,12 +231,12 @@ def setup_logging(log_level = None):
 
     # define log format first
     if args.daemon:
-        # ommit time stamp if run in daemon mode
+        # omit time stamp if run in daemon mode
         logging.basicConfig(level="DEBUG", format='%(levelname)s: %(message)s')
     else:
         logging.basicConfig(level="DEBUG", format='%(asctime)s - %(levelname)s: %(message)s')
 
-    if log_level == None or log_level == "":
+    if log_level is None or log_level == "":
         logging.debug("Configuring logging: No log level defined, using default level: %s" % default_log_level)
         log_level = default_log_level
     else:
@@ -268,15 +285,17 @@ def setup_icinga_connection():
     i2_error = None
 
     try:
-        i2_handle = i2_client(url="https://" + config["icinga.hostname"] + ":" + config["icinga.port"], \
-                              username=config["icinga.username"], \
-                              password=config["icinga.password"])
+        i2_handle = I2Client(url="https://" + config["icinga.hostname"] + ":" + config["icinga.port"],
+                             username=config["icinga.username"], password=config["icinga.password"],
+                             certificate=config["icinga.certificate"], key=config["icinga.key"],
+                             ca_certificate=config["icinga.ca_certificate"], timeout=int(config["icinga.timeout"])
+                            )
 
     except Icinga2ApiException as e:
         # implement error handling
         log.error("Unable to set up Icinga2 connection: %s" % str(e))
 
-    return (i2_handle, i2_error)
+    return i2_handle, i2_error
 
 def get_i2_status():
     """Request Icinga2 API Endpoint /v1/status
@@ -302,7 +321,7 @@ def get_i2_status():
         # implement error handling
         log.error("Unable to query Icinga2 status: %s" % str(e))
 
-    return (i2_response, i2_error)
+    return i2_response, i2_error
 
 def get_i2_object(type="Host", filter_states=None, filter_names=None):
     """Request Icinga2 API Endpoint /v1/objects
@@ -376,9 +395,9 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
             i2_error = "No objects found"
             pass
 
-    return (i2_response, i2_error)
+    return i2_response, i2_error
 
-def query_i2(type=None, filter=None, names=None):
+def query_i2(type=None, filter_states=None, filter_names=None):
     """Request Icinga2 API Endpoint /v1/objects
 
     Parameters
@@ -407,7 +426,7 @@ def query_i2(type=None, filter=None, names=None):
     if not type:
         return None
 
-    i2_response, i2_error = get_i2_object(type, filter, names)
+    i2_response, i2_error = get_i2_object(type, filter_states, filter_names)
 
     if i2_response:
         for object in i2_response:
@@ -415,7 +434,7 @@ def query_i2(type=None, filter=None, names=None):
 
     return response_objects
 
-def get_i2_filter(type="Host", message=""):
+def get_i2_filter(type="Host", slack_message=""):
     """Parse a Slack message and create lists of filters depending on the
     object type
 
@@ -423,7 +442,7 @@ def get_i2_filter(type="Host", message=""):
     ----------
     type : str
         the object type to request (Host or Service)
-    message : str
+    slack_message : str
         the Slack message to parse
 
     Returns
@@ -432,7 +451,7 @@ def get_i2_filter(type="Host", message=""):
         returns a tuple with three elements
             filter_states: a list of filter states
             filter_names: a list of names to filter for
-            filter_error: a list of errors which occured while parsing message
+            filter_error: a list of errors which occurred while parsing message
     """
 
     filter_error = list()
@@ -442,8 +461,8 @@ def get_i2_filter(type="Host", message=""):
     host_states = enum("UP", "DOWN", "UNREACHABLE")
     service_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
 
-    if message.strip() is not "":
-        filter_options = message.split(" ")
+    if slack_message.strip() is not "":
+        filter_options = slack_message.split(" ")
         filter_options = sorted(set(filter_options))
 
     # use a copy of filter_options to not remove items from current iteration
@@ -519,7 +538,7 @@ def get_i2_filter(type="Host", message=""):
     if len(filter_error) == 0:
         filter_error = None
 
-    return (filter_states, filter_options, filter_error)
+    return filter_states, filter_options, filter_error
 
 def get_service_block(host, services):
     """return a slack message block for service status details
@@ -528,8 +547,8 @@ def get_service_block(host, services):
     ----------
     host : str
         host name in slack message block
-    service : str
-        service name in slack message block
+    services : list
+        list of service names in slack message block
 
     Returns
     -------
@@ -563,7 +582,7 @@ def get_single_block(text):
 
 
 def format_response(type="Host", response_objects = list()):
-    """Format a slack respons
+    """Format a slack response
 
     The objects will be sorted after name before they are compiled into
     a response. Service objects will first be sorted after host name and
@@ -592,11 +611,11 @@ def format_response(type="Host", response_objects = list()):
         # sort
         if type is "Host":
             response_objects = sorted(response_objects, key=lambda k: k['name'])
-            object_states = enum("UP", "DOWN", "UNREACHABLE")
+            #object_states = enum("UP", "DOWN", "UNREACHABLE")
             object_emojies = enum(":white_check_mark:", ":red_circle:", ":red_circle:")
         else:
             response_objects = sorted(response_objects, key=lambda k: (k['host_name'], k['name']))
-            object_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
+            #object_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
             object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
 
         #response_text = "found %d %ss objects:" % ( len(response_objects), type.lower() )
@@ -642,8 +661,9 @@ async def handle_command(slack_message):
         returns a list of slack message blocks
     """
 
-    response_text = None
+    #response_text = None
     response_blocks = None
+    status_type = None
     query_icinga = False
     default_response_text = "I didn't understand the command. Please use 'help' for more details."
 
@@ -697,8 +717,8 @@ async def handle_command(slack_message):
             else:
                 response_blocks = get_single_block("filters '%s' and '%s' are not valid for %s status commands, check 'help' command" % ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type))
         else:
-            response_objets = query_i2(status_type, i2_filter_status, i2_filter_names)
-            response_blocks = format_response(status_type, response_objets)
+            response_objects = query_i2(status_type, i2_filter_status, i2_filter_names)
+            response_blocks = format_response(status_type, response_objects)
 
     return response_blocks or get_single_block(default_response_text)
 
@@ -724,13 +744,13 @@ async def message(**payload):
     data = payload["data"]
     web_client = payload["web_client"]
 
-    if data.get("text") != None:
+    if data.get("text") is not None:
         channel_id = data.get("channel")
-        user_id = data.get("user")
+        #user_id = data.get("user")
         bot_id = data.get("bot_id")
 
         # don't answer if message was sent by a bot
-        if bot_id != None:
+        if bot_id is not None:
             return
 
         # parse command
@@ -778,7 +798,7 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     rtm_client = slack.RTMClient(
-        token=config["slack.bot_tocken"], ssl=slack_ssl_context, run_async=True, loop=loop
+        token=config["slack.bot_token"], ssl=slack_ssl_context, run_async=True, loop=loop
     )
     loop.run_until_complete(rtm_client.start())
 

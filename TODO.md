@@ -13,4 +13,5 @@
 * proper icinga2 error handling
 * add tactical overview (tac) command
 * add limit of max returned results
-* add all icinga2api connection options (ca, cert, key, timeout)
+* ~add all icinga2api connection options (ca, cert, key, timeout)~
+* add icingaweb2 url to bot responses and error handler
