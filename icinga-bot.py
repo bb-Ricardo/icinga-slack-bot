@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+self_description = \
+"""This is an Icinga2 Slack bot.
+
+It can be used to interact with Icinga2 from your Slack client. It uses the
+Icinga2 API to get Host/Service status details. Simple status filters can be
+used to narrow down the returned status list.
+"""
+
 # The slack basics are mostly taken from here:
 # https://github.com/slackapi/python-slackclient/blob/master/tutorial/02-building-a-message.md
 
@@ -48,9 +56,6 @@ default_config_file_path = "./icinga-bot.ini"
 #   INTERNAL VARS
 #
 
-# define a program description
-self_description = "ICINGA BOT DESCRIPTION"
-
 MENTION_REGEX = "^<@(|[WU].+?)>(.*)"
 
 # define valid log levels
@@ -66,8 +71,11 @@ config = None
 #   FUNCTIONS
 #
 
-# parse command line arguments
 def parse_command_line():
+    """parse command line arguments
+
+    Also add current version and version date to description
+    """
 
     # define command line options
     parser = ArgumentParser(description=self_description + "\nVersion: " + __version__ + " (" + __version_date__ + ")", formatter_class=RawDescriptionHelpFormatter)
@@ -83,6 +91,18 @@ def parse_command_line():
     return parser.parse_args()
 
 def parse_own_config(config_file):
+    """parsing and basic validation of own config file
+
+    Parameters
+    ----------
+    config_file : str
+        The file location of the confif file
+
+    Returns
+    -------
+    dict
+        a dictonary with all config options parsed from the config file
+    """
 
     config_dict = {}
 
@@ -158,8 +178,15 @@ def parse_own_config(config_file):
 
     return config_dict
 
-# log an error and exit with error level 1
 def do_error_exit(log_text):
+    """log an error and exit with return code 1
+
+    Parameters
+    ----------
+    log_text : str
+        the text to log as error
+    """
+
     global log
     if log:
         log.error(log_text)
@@ -167,8 +194,19 @@ def do_error_exit(log_text):
         logging.error(log_text)
     exit(1)
 
-# setup logging
-def setup_logging(log_level):
+def setup_logging(log_level = None):
+    """Setup logging
+
+    Parameters
+    ----------
+    log_level : str, optional
+        Log level to use during runtime (defaults to default_log_level)
+
+    Returns
+    -------
+    object
+        a logging object
+    """
 
     global args
 
@@ -206,12 +244,24 @@ def setup_logging(log_level):
     return logger
 
 def enum(*sequential, **named):
+    """returns an enumerated type"""
+
     enums = dict(zip(sequential, range(len(sequential))), **named)
     reverse = dict((value, key) for key, value in enums.items())
     enums['reverse'] = reverse
     return type('Enum', (), enums)
 
 def setup_icinga_connection():
+    """Setup an Icinga connection and pass all parameters
+
+    Returns
+    -------
+    tuple
+        returns a tuple with two elements
+            i2_handle: icinga2 client object
+            i2_error: an error string in case a client connection failed
+    """
+
     global config
 
     i2_handle = None
@@ -229,6 +279,15 @@ def setup_icinga_connection():
     return (i2_handle, i2_error)
 
 def get_i2_status():
+    """Request Icinga2 API Endpoint /v1/status
+
+    Returns
+    -------
+    tuple
+        returns a tuple with two elements
+            i2_response: json response
+            i2_error: an error string in case the query failed
+    """
 
     i2_response = None
 
@@ -246,6 +305,26 @@ def get_i2_status():
     return (i2_response, i2_error)
 
 def get_i2_object(type="Host", filter_states=None, filter_names=None):
+    """Request Icinga2 API Endpoint /v1/objects
+
+    Parameters
+    ----------
+    type : str
+        the object type to request (Host or Service)
+    filter_states : list, optional
+        a list of object states to filter for, use function "get_i2_filter"
+        to generate this list (default is None)
+    filter_names : list, optional
+        a list of object names to filter for, use function "get_i2_filter"
+        to generate this list (default is None)
+
+    Returns
+    -------
+    tuple
+        returns a tuple with two elements
+            i2_response: json response
+            i2_error: an error string in case the query failed
+    """
 
     i2_response = None
     i2_filters = None
@@ -300,6 +379,28 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
     return (i2_response, i2_error)
 
 def query_i2(type=None, filter=None, names=None):
+    """Request Icinga2 API Endpoint /v1/objects
+
+    Parameters
+    ----------
+    type : str
+        the object type to request (Host or Service)
+    filter_states : list, optional
+        a list of object states to filter for, use function "get_i2_filter"
+        to generate this list (default is None)
+    filter_names : list, optional
+        a list of object names to filter for, use function "get_i2_filter"
+        to generate this list (default is None)
+
+    Returns
+    -------
+    list
+        returns a list of requested objects
+
+    ToDo
+    ----
+    this function can probably be scrapped an be integrated into get_i2_object
+    """
 
     response_objects = list()
 
@@ -315,6 +416,24 @@ def query_i2(type=None, filter=None, names=None):
     return response_objects
 
 def get_i2_filter(type="Host", message=""):
+    """Parse a Slack message and create lists of filters depending on the
+    object type
+
+    Parameters
+    ----------
+    type : str
+        the object type to request (Host or Service)
+    message : str
+        the Slack message to parse
+
+    Returns
+    -------
+    tuple
+        returns a tuple with three elements
+            filter_states: a list of filter states
+            filter_names: a list of names to filter for
+            filter_error: a list of errors which occured while parsing message
+    """
 
     filter_error = list()
     filter_options = list()
@@ -403,12 +522,40 @@ def get_i2_filter(type="Host", message=""):
     return (filter_states, filter_options, filter_error)
 
 def get_service_block(host, services):
+    """return a slack message block for service status details
+
+    Parameters
+    ----------
+    host : str
+        host name in slack message block
+    service : str
+        service name in slack message block
+
+    Returns
+    -------
+    dict
+        returns a slack message block dictionary
+    """
+
     text = "*%s* (%d services)\n\t%s" % (host, len(services), "\n\n\t".join(services))
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
 def get_single_block(text):
+    """return a slack message block
+
+    Parameters
+    ----------
+    text : str
+        text to add to slack message block
+
+    Returns
+    -------
+    dict
+        returns a slack message block dictionary
+    """
+
 #   {"type": "divider"},
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
@@ -416,6 +563,24 @@ def get_single_block(text):
 
 
 def format_response(type="Host", response_objects = list()):
+    """Format a slack respons
+
+    The objects will be sorted after name before they are compiled into
+    a response. Service objects will first be sorted after host name and
+    then after service name
+
+    Parameters
+    ----------
+    type : str
+        the object type to request (Host or Service)
+    response_objects : list
+        a list of objects to include in the Slack message
+
+    Returns
+    -------
+    list
+        returns a list of slack message blocks
+    """
 
     response_blocks = None
     current_host = None
@@ -455,10 +620,26 @@ def format_response(type="Host", response_objects = list()):
 
     return response_blocks or get_single_block("Your command returned no results")
 
-
 async def handle_command(slack_message):
+    """parse a Slack message and try to interpret commands
 
-    """DESCRIPTION
+    Currently implemented commands:
+        ping: return a simple "pong"
+        help: print a help description
+        host status (hs): request a host status
+        service status (ss): request a service status
+
+    Returns "default_response_text" var if parsing failed
+
+    Parameters
+    ----------
+    slack_message : str
+        Slack message to parse
+
+    Returns
+    -------
+    list
+        returns a list of slack message blocks
     """
 
     response_text = None
@@ -521,11 +702,25 @@ async def handle_command(slack_message):
 
     return response_blocks or get_single_block(default_response_text)
 
-
 @slack.RTMClient.run_on(event="message")
 async def message(**payload):
-    """DESCRIPTION
+    """parse payload of every Slack message received
+
+    This functions extracts the text entry from payload and passes
+    it to handle_command(). Payloads which contain a bot_id entry are ignored.
+    The response will be posted to the same channel.
+
+    Parameters
+    ----------
+    payload : object
+        Slack payload to parse
+
+    Returns
+    -------
+    list
+        returns a list of slack message blocks
     """
+
     data = payload["data"]
     web_client = payload["web_client"]
 
@@ -555,6 +750,7 @@ async def message(**payload):
     return
 
 if __name__ == "__main__":
+    """main 'function' will setup the Slack bot and initialize connections"""
 
     ################
     #   parse command line

@@ -7,9 +7,9 @@
 * add systemd unit file
 * add README.md
 * fix logging
-* document functions
+* ~document functions~
 * add debug logging
-* add description
+* ~add description~
 * proper icinga2 error handling
 * add tactical overview (tac) command
 * add limit of max returned results
