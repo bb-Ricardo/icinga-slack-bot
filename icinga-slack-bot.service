@@ -1,0 +1,18 @@
+[Unit]
+Description=Icinga2 Slack Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nobody
+WorkingDirectory=/opt/icinga-slack-bot
+ExecStart=/opt/icinga-slack-bot/.pyenv/bin/python /opt/icinga-slack-bot/icinga-bot.py -d -c /opt/icinga-slack-bot/icinga-bot.ini
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=icinga-slack-bot
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
