@@ -24,6 +24,7 @@ import ssl as ssl_lib
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import configparser
 import json
+from datetime import datetime
 
 # use while debugging
 import pprint
@@ -300,7 +301,7 @@ def setup_icinga_connection():
 
     return i2_handle, i2_error
 
-def get_i2_status():
+def get_i2_status(application = None):
     """Request Icinga2 API Endpoint /v1/status
 
     Returns
@@ -322,7 +323,7 @@ def get_i2_status():
             return None, "Unknown error while setting up Icinga2 connection"
 
     try:
-        i2_response = i2_handle.status.list()
+        i2_response = i2_handle.status.list(application)
 
     except Exception as e:
         i2_error = str(e)
@@ -772,6 +773,57 @@ async def message(**payload):
 
     return
 
+def post_slack_message_to_channel(channel = None, slack_message = None, slack_message_blocks = None):
+    """directly post a message to Slack
+
+    Parameters
+    ----------
+    cahnnel : str
+        Slack chennal to post message to
+    slack_message: str
+        message to post to Slack
+    slack_message_blocks: str, optional
+        message in blocks format. Default Block will be used if undefined
+
+    Returns
+    -------
+    tuple
+        returns a tuple with two elements
+            response: slack response object
+            error: error string if error occured
+    """
+
+    global config
+
+    error = None
+
+    if channel is None:
+        return None, "Error in function 'post_slack_message_to_channel': no channel defined"
+    if slack_message is None:
+        return None, "Error in function 'post_slack_message_to_channel': no message blocks defined"
+
+    if slack_message_blocks is None:
+        slack_message_blocks = get_single_block(slack_message)
+
+    # set up slack ssl context
+    slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
+
+    # message about start
+    client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)
+
+    # post the message
+    try:
+        response = client.chat_postMessage(
+            channel=channel,
+            text=slack_message,
+            blocks=slack_message_blocks)
+    except slack.errors.SlackApiError as e:
+        response = e.response
+        error = response.get("error")
+
+    return response, error
+
+
 if __name__ == "__main__":
     """main 'function' will setup the Slack bot and initialize connections"""
 
@@ -793,9 +845,34 @@ if __name__ == "__main__":
         do_error_exit("Config parsing error")
 
     # set up icinga
-    get_i2_status()
+    i2_status_response, i2_status_error = get_i2_status("IcingaApplication")
 
-    # set up slack
+    slack_startup_message_error = None
+
+    if i2_status_error:
+        # Todo: setup a proper error message block
+        slack_startup_message_response, slack_startup_message_error = post_slack_message_to_channel(config["slack.default_channel"], "Error connecting to Icinga: %s" % i2_status_error)
+    else:
+
+        # get icinga app status from response
+        icing_status = i2_status_response["results"][0]["status"]["icingaapplication"]["app"]
+        icinga_start_date_time = datetime.fromtimestamp(icing_status["program_start"])
+
+        # format message block
+        message_blocks = list()
+        message_blocks.extend(get_single_block("Starting up %s" % __description__))
+        message_blocks.append({"type": "divider"})
+        message_blocks.extend(get_single_block("Connecting to Icinga successfull\n\tNode name: %s\n\tVersion: %s\n\tRunning since: %s" %
+            (icing_status["node_name"], icing_status["version"], icinga_start_date_time.strftime("%Y-%m-%d %H:%M:%S"))
+        ))
+
+        slack_startup_message_response, slack_startup_message_error = post_slack_message_to_channel(config["slack.default_channel"], "Starting up %s" % __description__, message_blocks)
+
+    if slack_startup_message_error:
+        do_error_exit("Error while posting startup message to slack (%s): %s" % (config["slack.default_channel"], slack_startup_message_error))
+
+
+    # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
     loop = asyncio.new_event_loop()
