@@ -598,6 +598,8 @@ def format_response(type="Host", response_objects = list()):
         returns a list of slack message blocks
     """
 
+    global config
+
     response_blocks = None
     current_host = None
     service_list = []
@@ -621,18 +623,36 @@ def format_response(type="Host", response_objects = list()):
         for object in response_objects:
             last_check = object.get("last_check_result")
             if type is "Host":
-                text = "%s %s: %s" % (object_emojies.reverse[object.get("state")], object.get("name"), last_check.get("output"))
+
+                text = "{state_emojie} <{web2_url}/monitoring/host/show?host={host_name}|{host_name}>: {output}".format(
+                    state_emojie=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
+                    host_name=object.get("name"), output=last_check.get("output")
+                )
+
                 response_blocks.extend(get_single_block(text))
+
             else:
                 if current_host and current_host != object.get("host_name"):
-                    response_blocks.extend(get_service_block(current_host, service_list))
+                    host_text = "<{web2_url}/monitoring/host/show?host={host_name}|{host_name}>".format(
+                        web2_url=config["icinga.web2_url"], host_name=current_host
+                    )
+                    response_blocks.extend(get_service_block(host_text, service_list))
                     service_list = []
 
                 current_host = object.get("host_name")
-                service_list.append("%s %s: %s" % (object_emojies.reverse[object.get("state")], object.get("name"), last_check.get("output")))
+                service_text = "{state_emojie} <{web2_url}/monitoring/service/show?host={host_name}&amp;service={service_name}|{service_name}>: {output}".format(
+                    state_emojie=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
+                    host_name=current_host, service_name=object.get("name"), output=last_check.get("output")
+                )
+
+                service_list.append(service_text)
+
         else:
             if type is not "Host":
-                response_blocks.extend(get_service_block(current_host, service_list))
+                host_text = "<{web2_url}/monitoring/host/show?host={host_name}|{host_name}>".format(
+                    web2_url=config["icinga.web2_url"], host_name=current_host
+                )
+                response_blocks.extend(get_service_block(host_text, service_list))
 
     return response_blocks or get_single_block("Your command returned no results")
 
@@ -778,8 +798,8 @@ def post_slack_message_to_channel(channel = None, slack_message = None, slack_me
 
     Parameters
     ----------
-    cahnnel : str
-        Slack chennal to post message to
+    channel : str
+        Slack channel to post message to
     slack_message: str
         message to post to Slack
     slack_message_blocks: str, optional
@@ -790,7 +810,7 @@ def post_slack_message_to_channel(channel = None, slack_message = None, slack_me
     tuple
         returns a tuple with two elements
             response: slack response object
-            error: error string if error occured
+            error: error string if error occurred
     """
 
     global config
@@ -806,10 +826,10 @@ def post_slack_message_to_channel(channel = None, slack_message = None, slack_me
         slack_message_blocks = get_single_block(slack_message)
 
     # set up slack ssl context
-    slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
+    this_slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
     # message about start
-    client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)
+    client = slack.WebClient(token=config["slack.bot_token"], ssl=this_slack_ssl_context)
 
     # post the message
     try:
@@ -862,7 +882,7 @@ if __name__ == "__main__":
         message_blocks = list()
         message_blocks.extend(get_single_block("Starting up %s" % __description__))
         message_blocks.append({"type": "divider"})
-        message_blocks.extend(get_single_block("Connecting to Icinga successfull\n\tNode name: %s\n\tVersion: %s\n\tRunning since: %s" %
+        message_blocks.extend(get_single_block("Successfully connected to Icinga\n\tNode name: %s\n\tVersion: %s\n\tRunning since: %s" %
             (icing_status["node_name"], icing_status["version"], icinga_start_date_time.strftime("%Y-%m-%d %H:%M:%S"))
         ))
 
