@@ -66,7 +66,6 @@ MENTION_REGEX = "^<@(|[WU].+?)>(.*)"
 valid_log_levels = [ "DEBUG", "INFO", "WARNING", "ERROR"]
 
 args = None
-log = None
 config = None
 
 
@@ -110,11 +109,11 @@ def parse_own_config(config_file):
 
     config_dict = {}
 
-    global log, args
+    global args
 
     config_error = False
 
-    log.debug("Parsing daemon config file: %s" % config_file)
+    logging.debug("Parsing daemon config file: %s" % config_file)
 
     if config_file is None or config_file == "":
         do_error_exit("Config file not defined.")
@@ -132,21 +131,21 @@ def parse_own_config(config_file):
     # read logging section
     this_section = "main"
     if not this_section in config_handler.sections():
-        log.warning("Section '%s' not found in '%s'" % (this_section, config_file) )
+        logging.warning("Section '%s' not found in '%s'" % (this_section, config_file) )
 
     # read logging if present
     config_dict["log_level"] = config_handler.get(this_section, "log_level", fallback=default_log_level)
 
-    log.debug("Config: %s = %s" % ("log_level", config_dict["log_level"]))
-
     # overwrite log level with command line argument
     if args.log_level is not None and args.log_level != "":
         config_dict["log_level"] = args.log_level
-        log.debug("Config: overwriting log_level with command line arg: %s" % args.log_level)
+        logging.info("Config: overwriting log_level with command line arg: %s" % args.log_level)
 
     # set log level again
     if args.log_level is not config_dict["log_level"]:
-        setup_logging(config_dict["log_level"])
+        set_log_level(config_dict["log_level"])
+
+    logging.debug("Config: %s = %s" % ("log_level", config_dict["log_level"]))
 
     # read common section
     this_section = "slack"
@@ -154,9 +153,9 @@ def parse_own_config(config_file):
         do_error_exit("Section '%s' not found in '%s'" % (this_section, config_file) )
     else:
         config_dict["slack.bot_token"] = config_handler.get(this_section, "bot_token", fallback="")
-        log.debug("Config: %s = %s" % ("slack.bot_token", config_dict["slack.bot_token"]))
+        logging.debug("Config: %s = %s***" % ("slack.bot_token", config_dict["slack.bot_token"][0:10]))
         config_dict["slack.default_channel"] = config_handler.get(this_section, "default_channel", fallback="")
-        log.debug("Config: %s = %s" % ("slack.default_channel", config_dict["slack.default_channel"]))
+        logging.debug("Config: %s = %s" % ("slack.default_channel", config_dict["slack.default_channel"]))
 
     # read paths section
     this_section = "icinga"
@@ -164,23 +163,23 @@ def parse_own_config(config_file):
         do_error_exit("Section '%s' not found in '%s'" % (this_section, config_file) )
     else:
         config_dict["icinga.hostname"] = config_handler.get(this_section, "hostname", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.hostname", config_dict["icinga.hostname"]))
+        logging.debug("Config: %s = %s" % ("icinga.hostname", config_dict["icinga.hostname"]))
         config_dict["icinga.port"] = config_handler.get(this_section, "port", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.port", config_dict["icinga.port"]))
+        logging.debug("Config: %s = %s" % ("icinga.port", config_dict["icinga.port"]))
         config_dict["icinga.username"] = config_handler.get(this_section, "username", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.username", config_dict["icinga.username"]))
+        logging.debug("Config: %s = %s" % ("icinga.username", config_dict["icinga.username"]))
         config_dict["icinga.password"] = config_handler.get(this_section, "password", fallback="")
-        #log.debug("Config: %s = %s" % ("icinga.password", config_dict["icinga.password"]))
+        logging.debug("Config: %s = %s***" % ("icinga.password", config_dict["icinga.password"][0:3]))
         config_dict["icinga.web2_url"] = config_handler.get(this_section, "web2_url", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.web2_url", config_dict["icinga.web2_url"]))
+        logging.debug("Config: %s = %s" % ("icinga.web2_url", config_dict["icinga.web2_url"]))
         config_dict["icinga.certificate"] = config_handler.get(this_section, "certificate", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.certificate", config_dict["icinga.certificate"]))
+        logging.debug("Config: %s = %s" % ("icinga.certificate", config_dict["icinga.certificate"]))
         config_dict["icinga.key"] = config_handler.get(this_section, "key", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.key", config_dict["icinga.key"]))
+        logging.debug("Config: %s = %s" % ("icinga.key", config_dict["icinga.key"]))
         config_dict["icinga.ca_certificate"] = config_handler.get(this_section, "ca_certificate", fallback="")
-        log.debug("Config: %s = %s" % ("icinga.ca_certificate", config_dict["icinga.ca_certificate"]))
+        logging.debug("Config: %s = %s" % ("icinga.ca_certificate", config_dict["icinga.ca_certificate"]))
         config_dict["icinga.timeout"] = config_handler.get(this_section, "timeout", fallback=str(default_connection_timeout))
-        log.debug("Config: %s = %s" % ("icinga.timeout", config_dict["icinga.timeout"]))
+        logging.debug("Config: %s = %s" % ("icinga.timeout", config_dict["icinga.timeout"]))
 
     for key, value in config_dict.items():
         if value is "":
@@ -190,7 +189,7 @@ def parse_own_config(config_file):
             # these vars can be empty
             if key in [ "icinga.key", "icinga.certificate", "icinga.web2_url", "icinga.ca_certificate" ]:
                 continue
-            log.error("Config: option '%s' undefined or empty!" % key)
+            logging.error("Config: option '%s' undefined or empty!" % key)
             config_error = True
 
     if config_error:
@@ -207,12 +206,33 @@ def do_error_exit(log_text):
         the text to log as error
     """
 
-    global log
-    if log:
-        log.error(log_text)
-    else:
-        logging.error(log_text)
+    logging.error(log_text)
     exit(1)
+
+def set_log_level(log_level = None):
+
+    global valid_log_levels
+
+    logging.info("Setting log level to: %s" % log_level)
+
+    # check set log level against self defined log level array
+    if not log_level.upper() in valid_log_levels:
+        do_error_exit('Invalid log level: %s' % log_level)
+
+    # check the provided log level and bail out if something is wrong
+    numeric_log_level = getattr(logging, log_level.upper(), None)
+    if not isinstance(numeric_log_level, int):
+        do_error_exit('Invalid log level: %s' % log_level)
+
+    # unfortunately we have to manipulate the root logger
+    if log_level == "DEBUG":
+        logging.disable(logging.NOTSET)
+    elif log_level == "INFO":
+        logging.disable(logging.DEBUG)
+    elif log_level == "WARNING":
+        logging.disable(logging.INFO)
+    elif log_level == "ERROR":
+        logging.disable(logging.WARNING)
 
 def setup_logging(log_level = None):
     """Setup logging
@@ -222,17 +242,10 @@ def setup_logging(log_level = None):
     log_level : str, optional
         Log level to use during runtime (defaults to default_log_level)
 
-    Returns
-    -------
-    object
-        a logging object
     """
 
     global args
 
-    logger = None
-
-    # define log format first
     if args.daemon:
         # omit time stamp if run in daemon mode
         logging.basicConfig(level="DEBUG", format='%(levelname)s: %(message)s')
@@ -245,23 +258,7 @@ def setup_logging(log_level = None):
     else:
         logging.debug("Configuring logging: Setting log level to: %s" % log_level)
 
-
-    # create logger handler
-    logger = logging.getLogger(__name__)
-
-    # check set log level against self defined log level array
-    if not log_level.upper() in valid_log_levels:
-        do_error_exit('Invalid log level: %s' % log_level)
-
-    # check the provided log level and bail out if something is wrong
-    numeric_log_level = getattr(logging, log_level.upper(), None)
-    if not isinstance(numeric_log_level, int):
-        do_error_exit('Invalid log level: %s' % log_level)
-
-    # set handler log level
-    logger.setLevel(numeric_log_level)
-
-    return logger
+    set_log_level(log_level)
 
 def enum(*sequential, **named):
     """returns an enumerated type"""
@@ -296,7 +293,7 @@ def setup_icinga_connection():
 
     except Icinga2ApiException as e:
         i2_error = str(e)
-        log.error("Unable to set up Icinga2 connection: %s" % i2_error)
+        logging.error("Unable to set up Icinga2 connection: %s" % i2_error)
         pass
 
     return i2_handle, i2_error
@@ -327,7 +324,7 @@ def get_i2_status(application = None):
 
     except Exception as e:
         i2_error = str(e)
-        log.error("Unable to query Icinga2 status: %s" % i2_error)
+        logging.error("Unable to query Icinga2 status: %s" % i2_error)
         pass
 
     return i2_response, i2_error
@@ -421,7 +418,7 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
 
     except Exception as e:
         i2_error = str(e)
-        log.error("Unable to query Icinga2 status: %s" % i2_error)
+        logging.error("Unable to query Icinga2 status: %s" % i2_error)
         pass
 
     if i2_error is None and i2_response is not None and isinstance(i2_response, list):
@@ -908,9 +905,9 @@ if __name__ == "__main__":
 
     ################
     #   setup logging
-    log = setup_logging(args.log_level)
+    setup_logging(args.log_level)
 
-    log.info("Starting " + __description__)
+    logging.info("Starting " + __description__)
 
     ################
     #   parse config file(s)

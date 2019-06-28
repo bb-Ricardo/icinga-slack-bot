@@ -14,7 +14,7 @@ used to narrow down the returned status list.
 * ~proper message formatting~
 * ~add systemd unit file~
 * ~add README.md~
-* fix logging
+* ~fix logging~
 * ~document functions~
 * add debug logging
 * ~add description~
