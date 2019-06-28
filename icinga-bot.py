@@ -624,8 +624,8 @@ def format_response(type="Host", response_objects = list()):
             last_check = object.get("last_check_result")
             if type is "Host":
 
-                text = "{state_emojie} <{web2_url}/monitoring/host/show?host={host_name}|{host_name}>: {output}".format(
-                    state_emojie=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
+                text = "{state_emoji} <{web2_url}/monitoring/host/show?host={host_name}|{host_name}>: {output}".format(
+                    state_emoji=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
                     host_name=object.get("name"), output=last_check.get("output")
                 )
 
@@ -640,8 +640,8 @@ def format_response(type="Host", response_objects = list()):
                     service_list = []
 
                 current_host = object.get("host_name")
-                service_text = "{state_emojie} <{web2_url}/monitoring/service/show?host={host_name}&amp;service={service_name}|{service_name}>: {output}".format(
-                    state_emojie=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
+                service_text = "{state_emoji} <{web2_url}/monitoring/service/show?host={host_name}&amp;service={service_name}|{service_name}>: {output}".format(
+                    state_emoji=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
                     host_name=current_host, service_name=object.get("name"), output=last_check.get("output")
                 )
 
@@ -654,7 +654,7 @@ def format_response(type="Host", response_objects = list()):
                 )
                 response_blocks.extend(get_service_block(host_text, service_list))
 
-    return response_blocks or get_single_block("Your command returned no results")
+    return response_blocks
 
 async def handle_command(slack_message):
     """parse a Slack message and try to interpret commands
@@ -678,11 +678,11 @@ async def handle_command(slack_message):
         returns a list of slack message blocks
     """
 
-    #response_text = None
+    response_text = None
     response_blocks = None
+    response_attachment = None
     status_type = None
-    query_icinga = False
-    default_response_text = "I didn't understand the command. Please use 'help' for more details."
+    default_response_text = "I didn't understand the command. Please use `help` for more details."
 
     matches = re.search(MENTION_REGEX, slack_message)
     if matches:
@@ -692,14 +692,35 @@ async def handle_command(slack_message):
     slack_message = slack_message.lower()
 
     if slack_message.startswith("ping"):
-        response_blocks = get_single_block("pong")
+        response_text = "pong :table_tennis_paddle_and_ball:"
 
     elif slack_message.startswith("help"):
-        response_blocks = get_single_block("""Following commands are implemented:
-        help:                   this help
-        service status (ss):    display service status of all services in non OK state
-        host status (hs):       display host status of all hosts in non UP state
-        """)
+
+        commands = {
+            "help":                 "this help",
+            "ping":                 "bot will answer with `pong`",
+            "service status (ss)":  "display service status of all services in non OK state",
+            "host status (hs)":     "display host status of all hosts in non UP state"
+        }
+
+        fields = list()
+        for command, description in commands.items():
+            fields.append({
+                "title": "`<bot> %s`" % command,
+                "value": description
+            })
+
+        response_text = "Bot help"
+        response_blocks = get_single_block("*Following commands are implemented*")
+        response_attachment = [
+            {
+                "fallback" : response_text,
+                "color": "#03A8F3",
+                "fields": fields,
+                "footer": "<https://github.com/bb-Ricardo/icinga-slack-bot#command-status-filter|Further Help @ GitHub>",
+                "footer_icon": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+            }
+        ]
 
     elif slack_message.startswith("service status") or slack_message.startswith("ss"):
 
@@ -710,8 +731,6 @@ async def handle_command(slack_message):
         else:
             slack_message = slack_message[len("service status"):].strip()
 
-        query_icinga = True
-
     elif slack_message.startswith("host status") or slack_message.startswith("hs"):
 
         status_type = "Host"
@@ -721,30 +740,59 @@ async def handle_command(slack_message):
         else:
             slack_message = slack_message[len("host status"):].strip()
 
-        query_icinga = True
-
     # query icinga
-    if query_icinga:
+    if status_type:
 
         i2_filter_status, i2_filter_names, i2_filter_error = get_i2_filter(status_type, slack_message)
 
+        # inform user about the filter mistake
         if i2_filter_error:
             if len(i2_filter_error) == 1:
-                response_blocks = get_single_block("filter '%s' not valid for %s status commands, check 'help' command" % (i2_filter_error[0], status_type))
+                i2_error_response = "filter '%s' not valid for %s status commands,\ncheck `help` command" % (i2_filter_error[0], status_type)
             else:
-                response_blocks = get_single_block("filters '%s' and '%s' are not valid for %s status commands, check 'help' command" % ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type))
+                i2_error_response = "filters '%s' and '%s' are not valid for %s status commands,\ncheck `help` command" % ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type)
+
+            response_text = "Command error"
+            response_blocks = get_single_block("*I'm having trouble understanding what you meant*")
+            response_attachment = [
+                {
+                    "fallback" : response_text,
+                    "color": "danger",
+                    "text": i2_error_response
+                }
+            ]
 
         else:
+
+            # get icinga objects
             i2_response, i2_error = get_i2_object(status_type, i2_filter_status, i2_filter_names)
 
             if i2_error:
-                response_blocks = get_single_block("Icinga request error: %s" % i2_error)
+                response_text = "Icinga request error"
+                response_blocks = get_single_block("*%s*" % response_text)
+                response_attachment = [
+                    {
+                        "fallback": response_text,
+                        "color": "danger",
+                        "text": "Error: %s" % i2_error
+                    }
+                ]
+
             elif type(i2_response) is str:
-                response_blocks =  get_single_block(i2_response)
+                response_text = "Icinga status response"
+                response_blocks = get_single_block(i2_response)
             else:
+                response_text = "Icinga status response"
                 response_blocks = format_response(status_type, i2_response)
 
-    return response_blocks or get_single_block(default_response_text)
+            if not response_blocks:
+                response_text = "No problematic %s objects found. Everything seems in good condition." % status_type.lower()
+
+    if not response_text and not response_blocks and not response_attachment:
+        response_text = default_response_text
+        response_blocks = get_single_block(default_response_text)
+
+    return response_text, response_blocks, response_attachment
 
 @slack.RTMClient.run_on(event="message")
 async def message(**payload):
@@ -778,13 +826,19 @@ async def message(**payload):
             return
 
         # parse command
-        response = await handle_command(data.get("text"))
+        message_text, message_blocks, message_attachments = await handle_command(data.get("text"))
+
+        if message_attachments:
+            message_attachments = json.dumps(message_attachments)
 
         try:
             web_client.chat_postMessage(
                 channel=channel_id,
-                blocks=response
+                text=message_text,
+                blocks=message_blocks,
+                attachments=message_attachments
             )
+
         except slack.errors.SlackApiError as e:
             web_client.chat_postMessage(
                 channel=channel_id,
@@ -793,17 +847,19 @@ async def message(**payload):
 
     return
 
-def post_slack_message_to_channel(channel = None, slack_message = None, slack_message_blocks = None):
+def post_slack_message_to_channel(channel = None, slack_message_text = None, slack_message_blocks = None, slack_message_attachments = None):
     """directly post a message to Slack
 
     Parameters
     ----------
     channel : str
         Slack channel to post message to
-    slack_message: str
+    slack_message_text: str
         message to post to Slack
     slack_message_blocks: str, optional
-        message in blocks format. Default Block will be used if undefined
+        message in blocks format
+    slack_message_attachments: list, optional
+        list of slack attachments
 
     Returns
     -------
@@ -819,11 +875,8 @@ def post_slack_message_to_channel(channel = None, slack_message = None, slack_me
 
     if channel is None:
         return None, "Error in function 'post_slack_message_to_channel': no channel defined"
-    if slack_message is None:
-        return None, "Error in function 'post_slack_message_to_channel': no message blocks defined"
-
-    if slack_message_blocks is None:
-        slack_message_blocks = get_single_block(slack_message)
+    if slack_message_text is None:
+        return None, "Error in function 'post_slack_message_to_channel': no message text defined"
 
     # set up slack ssl context
     this_slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
@@ -835,8 +888,10 @@ def post_slack_message_to_channel(channel = None, slack_message = None, slack_me
     try:
         response = client.chat_postMessage(
             channel=channel,
-            text=slack_message,
-            blocks=slack_message_blocks)
+            text=slack_message_text,
+            blocks=slack_message_blocks,
+            attachments=slack_message_attachments
+        )
     except slack.errors.SlackApiError as e:
         response = e.response
         error = response.get("error")
@@ -870,23 +925,39 @@ if __name__ == "__main__":
     slack_startup_message_error = None
 
     if i2_status_error:
-        # Todo: setup a proper error message block
-        slack_startup_message_response, slack_startup_message_error = post_slack_message_to_channel(config["slack.default_channel"], "Error connecting to Icinga: %s" % i2_status_error)
+
+        # format error message block
+        message_text = "Icinga connection error during bot start"
+        message_blocks = get_single_block("*%s*" % message_text)
+        message_attachments = [
+            {
+                "fallback": message_text,
+                "color": "danger",
+                "text": i2_status_error
+            }
+        ]
+
     else:
 
         # get icinga app status from response
         icing_status = i2_status_response["results"][0]["status"]["icingaapplication"]["app"]
         icinga_start_date_time = datetime.fromtimestamp(icing_status["program_start"])
 
-        # format message block
-        message_blocks = list()
-        message_blocks.extend(get_single_block("Starting up %s" % __description__))
-        message_blocks.append({"type": "divider"})
-        message_blocks.extend(get_single_block("Successfully connected to Icinga\n\tNode name: %s\n\tVersion: %s\n\tRunning since: %s" %
+        icinga_status_text = "Successfully connected to Icinga\n\tNode name: *%s*\n\tVersion: *%s*\n\tRunning since: *%s*" % \
             (icing_status["node_name"], icing_status["version"], icinga_start_date_time.strftime("%Y-%m-%d %H:%M:%S"))
-        ))
 
-        slack_startup_message_response, slack_startup_message_error = post_slack_message_to_channel(config["slack.default_channel"], "Starting up %s" % __description__, message_blocks)
+        # format message block
+        message_text = "Starting up %s" % __description__
+        message_blocks = get_single_block("*%s*" % message_text)
+        message_attachments = [
+            {
+                "fallback": message_text,
+                "color": "good",
+                "text": icinga_status_text
+            }
+        ]
+
+    slack_startup_message_response, slack_startup_message_error = post_slack_message_to_channel(config["slack.default_channel"], message_text, message_blocks, message_attachments)
 
     if slack_startup_message_error:
         do_error_exit("Error while posting startup message to slack (%s): %s" % (config["slack.default_channel"], slack_startup_message_error))

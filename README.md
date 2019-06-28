@@ -23,8 +23,8 @@ used to narrow down the returned status list.
 * ~add icingaweb2 url to bot responses and error handler~
 * circumvent *"[ERROR] block must be less than 3000 characters"*
 * add state change time to host and service status messages
-* add fallback text to slack messages to display push messages
-* use attachments to display bot commands
+* ~add fallback text to slack messages to display push messages~
+* ~use attachments to display bot commands~
 
 ### Next releases
 * acknowledge problems
