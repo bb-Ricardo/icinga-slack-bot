@@ -16,7 +16,7 @@ used to narrow down the returned status list.
 * ~add README.md~
 * ~fix logging~
 * ~document functions~
-* add debug logging
+* ~add debug logging~
 * ~add description~
 * ~proper icinga2 error handling~
 * ~add all icinga2api connection options (ca, cert, key, timeout)~
@@ -35,6 +35,7 @@ used to narrow down the returned status list.
 * add icinga status command
 * implement a way to exclude handled problems in default status query
 * add limit of max returned results
+* add filter option to config file to limit results to single hosts or host groups
 
 ## Requirements
 * python >= 3.6

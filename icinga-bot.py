@@ -27,7 +27,7 @@ import json
 from datetime import datetime
 
 # use while debugging
-import pprint
+#import pprint
 
 
 #################
@@ -41,7 +41,7 @@ from icinga2api.client import Client as I2Client, Icinga2ApiException
 
 
 __version__ = "0.0.1"
-__version_date__ = "2019-05-28"
+__version_date__ = "2019-06-29"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 __description__ = "Icinga2 Slack bot"
 
@@ -57,10 +57,10 @@ default_connection_timeout = 5
 
 #################
 #
-#   INTERNAL VARS
+#   internal vars
 #
 
-MENTION_REGEX = "^<@(|[WU].+?)>(.*)"
+mention_regex = "^<@(|[WU].+?)>(.*)"
 
 # define valid log levels
 valid_log_levels = [ "DEBUG", "INFO", "WARNING", "ERROR"]
@@ -71,7 +71,7 @@ config = None
 
 #################
 #
-#   FUNCTIONS
+#   functions
 #
 
 def parse_command_line():
@@ -125,7 +125,7 @@ def parse_own_config(config_file):
         config_handler.read_file(open(config_file))
     except configparser.Error as e:
         do_error_exit("Error during config file parsing: %s" % e )
-    except:
+    except Exception:
         do_error_exit("Unable to open file '%s'" % config_file )
 
     # read logging section
@@ -210,10 +210,16 @@ def do_error_exit(log_text):
     exit(1)
 
 def set_log_level(log_level = None):
+    """set or reset the log level
+
+    Parameters
+    ----------
+    log_level : str
+        Log level to set
+
+    """
 
     global valid_log_levels
-
-    logging.info("Setting log level to: %s" % log_level)
 
     # check set log level against self defined log level array
     if not log_level.upper() in valid_log_levels:
@@ -223,6 +229,8 @@ def set_log_level(log_level = None):
     numeric_log_level = getattr(logging, log_level.upper(), None)
     if not isinstance(numeric_log_level, int):
         do_error_exit('Invalid log level: %s' % log_level)
+
+    logging.info("Setting log level to: %s" % log_level)
 
     # unfortunately we have to manipulate the root logger
     if log_level == "DEBUG":
@@ -255,8 +263,6 @@ def setup_logging(log_level = None):
     if log_level is None or log_level == "":
         logging.debug("Configuring logging: No log level defined, using default level: %s" % default_log_level)
         log_level = default_log_level
-    else:
-        logging.debug("Configuring logging: Setting log level to: %s" % log_level)
 
     set_log_level(log_level)
 
@@ -296,6 +302,8 @@ def setup_icinga_connection():
         logging.error("Unable to set up Icinga2 connection: %s" % i2_error)
         pass
 
+    logging.debug("Successfully connected to Icinga2")
+
     return i2_handle, i2_error
 
 def get_i2_status(application = None):
@@ -320,6 +328,8 @@ def get_i2_status(application = None):
             return None, "Unknown error while setting up Icinga2 connection"
 
     try:
+        logging.debug("Requesting Icinga2 status for application: %s " % application)
+
         i2_response = i2_handle.status.list(application)
 
     except Exception as e:
@@ -372,8 +382,6 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
     if filter_states:
         i2_filters = '(' + ' || '.join(filter_states) + ')'
 
-    logging.debug("filter_names: %s" % filter_names)
-
     if filter_names and len(filter_names) >= 1 and filter_names[0] is not "":
         if i2_filters:
             i2_filters += " && "
@@ -384,17 +392,27 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
 
             hosts = list()
             for host in filter_names:
-                hosts.append('match("*{}*", host.name)'.format(host))
+                hosts.append(f'match("*{host}*", host.name)')
             i2_filters += '(' + ' || '.join(hosts) + ')'
         else:
+
+            # if user provided just one name we search for hosts and services with this name
             if len(filter_names) == 1:
-                i2_filters += '( match("*%s*", host.name) || match("*%s*", service.name) )' % ( filter_names[0], filter_names[0])
+                i2_filters += '( match("*%s*", host.name) || match("*%s*", service.name) )' % \
+                              ( filter_names[0], filter_names[0])
+
+            # if user provided more then one name we use the first and second name to search for host and service
+            # all additional names are being ignored
+            # example: testserver ntp
+            #   hostname: testserver, service: ntp
+            #   hostname: ntp, service testserver
             else:
-                i2_filters += '( match("*%s*", host.name) && match("*%s*", service.name) )' % ( filter_names[0], filter_names[1])
-                i2_filters += ' || ( match("*%s*", host.name) && match("*%s*", service.name) )' % ( filter_names[1], filter_names[0])
+                i2_filters += '( match("*%s*", host.name) && match("*%s*", service.name) )' % \
+                              ( filter_names[0], filter_names[1])
+                i2_filters += ' || ( match("*%s*", host.name) && match("*%s*", service.name) )' % \
+                              ( filter_names[1], filter_names[0])
 
-
-    logging.debug("Filter: %s" % i2_filters)
+    logging.debug("Used filter for Icinga2 query: %s" % i2_filters)
 
     try:
         i2_response = i2_handle.objects.list(type, attrs=list_attrs, filters=i2_filters)
@@ -418,7 +436,6 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
 
     except Exception as e:
         i2_error = str(e)
-        logging.error("Unable to query Icinga2 status: %s" % i2_error)
         pass
 
     if i2_error is None and i2_response is not None and isinstance(i2_response, list):
@@ -426,6 +443,11 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
         for object in i2_response:
             response_objects.append(object.get("attrs"))
         i2_response = response_objects
+
+        logging.debug("Icinga2 returned with %d results" % len(i2_response))
+
+    if i2_error:
+        logging.error("Unable to query Icinga2 status: %s" % i2_error)
 
     return i2_response, i2_error
 
@@ -456,63 +478,72 @@ def get_i2_filter(type="Host", slack_message=""):
     host_states = enum("UP", "DOWN", "UNREACHABLE")
     service_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
 
+    logging.debug("Start compiling Icinga2 filters for received message: %s" % slack_message)
+
     if slack_message.strip() is not "":
         filter_options = slack_message.split(" ")
-        filter_options = sorted(set(filter_options))
+
+    # define valid state filter options
+    valid_filter_states = {
+        "up": {
+            "type": "Host",
+            "state_id": host_states.UP
+        },
+        "down": {
+            "type": "Host",
+            "state_id": host_states.DOWN
+        },
+        "unreachable": {
+            "type": "Host",
+            "state_id": host_states.UNREACHABLE
+        },
+        "ok": {
+            "type": "Service",
+            "state_id": service_states.OK
+        },
+        "warning": {
+            "type": "Service",
+            "state_id": service_states.WARNING
+        },
+        "critical": {
+            "type": "Service",
+            "state_id": service_states.CRITICAL
+        },
+        "unknown": {
+            "type": "Service",
+            "state_id": service_states.UNKNOWN
+        }
+    }
 
     # use a copy of filter_options to not remove items from current iteration
     for filter_option in list(filter_options):
 
-        logging.debug("checking Filter option: %s" % filter_option)
+        logging.debug("Checking Filter option: %s" % filter_option)
 
-        if "up" == filter_option:
-            if type is "Host":
-                filter_states.append("host.state == %s" % str(host_states.UP))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
-        if "down" == filter_option:
-            if type is "Host":
-                filter_states.append("host.state == %s" % str(host_states.DOWN))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
-        if "unreach" == filter_option or "unreachable" == filter_option:
-            if type is "Host":
-                filter_states.append("host.state == %s" % str(host_states.UNREACHABLE))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
+        unaltered_filter_option = filter_option
 
-        if "ok" == filter_option:
-            if type is "Service":
-                filter_states.append("service.state == %s" % str(service_states.OK))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
-        if "warn" == filter_option or "warning" == filter_option:
-            if type is "Service":
-                filter_states.append("service.state == %s" % str(service_states.WARNING))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
-        if "crit" == filter_option or "critical" == filter_option:
-            if type is "Service":
-                filter_states.append("service.state == %s" % str(service_states.CRITICAL))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
-        if "unknown" == filter_option:
-            if type is "Service":
-                filter_states.append("service.state == %s" % str(service_states.UNKNOWN))
-            else:
-                filter_error.append(filter_option)
-            filter_options.remove(filter_option)
+        if filter_option == "unreach":
+            filter_option = "unreachable"
+        if filter_option == "warn":
+            filter_option = "warning"
+        if filter_option == "crit":
+            filter_option = "critical"
 
-#        # get problem services if no filters are requested
-#        if len(filter_states) == 0 and not "all" in filter_options:
-#            filter_states.append("service.state != ServiceOK")
+        if valid_filter_states.get(filter_option):
+            this_filter_state = valid_filter_states.get(filter_option)
 
+            if type == this_filter_state.get("type"):
+                filter_string = "%s.state = %d" % \
+                    (this_filter_state.get("type").lower(),
+                     this_filter_state.get("state_id"))
+
+                if not filter_string in filter_states:
+                    filter_states.append(filter_string)
+            else:
+                if not filter_option in filter_error:
+                    filter_error.append(filter_option)
+
+            filter_options.remove(unaltered_filter_option)
 
     # get problem host/services if no filters are requested
     if len(filter_states) == 0 and not "all" in filter_options and len(filter_options) == 0:
@@ -525,13 +556,13 @@ def get_i2_filter(type="Host", slack_message=""):
     if "all" in filter_options:
         filter_options.remove("all")
 
-    # remaining command will be used to match host/service name
-    logging.debug("states: %s" % filter_states)
-    logging.debug("names: %s" % filter_options)
-    logging.debug("errors: %s" % filter_error)
-
     if len(filter_error) == 0:
         filter_error = None
+
+    # remaining command will be used to match host/service name
+    logging.debug("Filter states: %s" % filter_states)
+    logging.debug("Filter names: %s" % filter_options)
+    logging.debug("Filter errors: %s" % filter_error)
 
     return filter_states, filter_options, filter_error
 
@@ -570,7 +601,6 @@ def get_single_block(text):
         returns a slack message block dictionary
     """
 
-#   {"type": "divider"},
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
@@ -604,17 +634,13 @@ def format_response(type="Host", response_objects = list()):
     # no service problems
     if len(response_objects) is not 0:
 
-        # sort
+        # sort objects
         if type is "Host":
             response_objects = sorted(response_objects, key=lambda k: k['name'])
-            #object_states = enum("UP", "DOWN", "UNREACHABLE")
             object_emojies = enum(":white_check_mark:", ":red_circle:", ":red_circle:")
         else:
             response_objects = sorted(response_objects, key=lambda k: (k['host_name'], k['name']))
-            #object_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
             object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
-
-        #response_text = "found %d %ss objects:" % ( len(response_objects), type.lower() )
 
         response_blocks = []
         for object in response_objects:
@@ -679,9 +705,10 @@ async def handle_command(slack_message):
     response_blocks = None
     response_attachment = None
     status_type = None
+
     default_response_text = "I didn't understand the command. Please use `help` for more details."
 
-    matches = re.search(MENTION_REGEX, slack_message)
+    matches = re.search(mention_regex, slack_message)
     if matches:
         slack_message = matches.group(2).strip()
 
@@ -689,9 +716,13 @@ async def handle_command(slack_message):
     slack_message = slack_message.lower()
 
     if slack_message.startswith("ping"):
+
+        logging.debug("Found 'ping' command")
         response_text = "pong :table_tennis_paddle_and_ball:"
 
     elif slack_message.startswith("help"):
+
+        logging.debug("Found 'help' command")
 
         commands = {
             "help":                 "this help",
@@ -721,6 +752,8 @@ async def handle_command(slack_message):
 
     elif slack_message.startswith("service status") or slack_message.startswith("ss"):
 
+        logging.debug("Found 'service status' command")
+
         status_type = "Service"
 
         if slack_message.startswith("ss"):
@@ -729,6 +762,8 @@ async def handle_command(slack_message):
             slack_message = slack_message[len("service status"):].strip()
 
     elif slack_message.startswith("host status") or slack_message.startswith("hs"):
+
+        logging.debug("Found 'host status' command")
 
         status_type = "Host"
 
@@ -744,6 +779,9 @@ async def handle_command(slack_message):
 
         # inform user about the filter mistake
         if i2_filter_error:
+
+            logging.debug("Found error during filter compilation. Icinga2 won't be queried.")
+
             if len(i2_filter_error) == 1:
                 i2_error_response = "filter '%s' not valid for %s status commands,\ncheck `help` command" % (i2_filter_error[0], status_type)
             else:
@@ -822,6 +860,8 @@ async def message(**payload):
         if bot_id is not None:
             return
 
+        logging.debug("Received new Slack message: %s" % data.get("text"))
+
         # parse command
         message_text, message_blocks, message_attachments = await handle_command(data.get("text"))
 
@@ -829,6 +869,9 @@ async def message(**payload):
             message_attachments = json.dumps(message_attachments)
 
         try:
+
+            logging.debug("Sending command response to Slack")
+
             web_client.chat_postMessage(
                 channel=channel_id,
                 text=message_text,
@@ -837,6 +880,9 @@ async def message(**payload):
             )
 
         except slack.errors.SlackApiError as e:
+
+            logging.error("Received Slack API error: %s" % str(e))
+
             web_client.chat_postMessage(
                 channel=channel_id,
                 text=str(e)
@@ -883,6 +929,9 @@ def post_slack_message_to_channel(channel = None, slack_message_text = None, sla
 
     # post the message
     try:
+
+        logging.debug("Posting Slack message to channel '%s'" % channel)
+
         response = client.chat_postMessage(
             channel=channel,
             text=slack_message_text,
@@ -892,6 +941,8 @@ def post_slack_message_to_channel(channel = None, slack_message_text = None, sla
     except slack.errors.SlackApiError as e:
         response = e.response
         error = response.get("error")
+
+        logging.error("Posting Slack message to channel '%s' failed: " % error)
 
     return response, error
 
@@ -918,8 +969,6 @@ if __name__ == "__main__":
 
     # set up icinga
     i2_status_response, i2_status_error = get_i2_status("IcingaApplication")
-
-    slack_startup_message_error = None
 
     if i2_status_error:
 
