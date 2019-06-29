@@ -55,6 +55,11 @@ default_log_level = "INFO"
 default_config_file_path = "./icinga-bot.ini"
 default_connection_timeout = 5
 
+slack_max_message_text_length = 40000
+slack_max_block_text_length = 3000
+slack_max_message_blocks = 50
+slack_max_message_attachments = 100
+
 #################
 #
 #   internal vars
@@ -533,7 +538,7 @@ def get_i2_filter(type="Host", slack_message=""):
             this_filter_state = valid_filter_states.get(filter_option)
 
             if type == this_filter_state.get("type"):
-                filter_string = "%s.state = %d" % \
+                filter_string = "%s.state == %d" % \
                     (this_filter_state.get("type").lower(),
                      this_filter_state.get("state_id"))
 
@@ -566,27 +571,6 @@ def get_i2_filter(type="Host", slack_message=""):
 
     return filter_states, filter_options, filter_error
 
-def get_service_block(host, services):
-    """return a slack message block for service status details
-
-    Parameters
-    ----------
-    host : str
-        host name in slack message block
-    services : list
-        list of service names in slack message block
-
-    Returns
-    -------
-    dict
-        returns a slack message block dictionary
-    """
-
-    text = "*%s* (%d services)\n\t%s" % (host, len(services), "\n\n\t".join(services))
-    return [
-        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-    ]
-
 def get_single_block(text):
     """return a slack message block
 
@@ -594,6 +578,7 @@ def get_single_block(text):
     ----------
     text : str
         text to add to slack message block
+        obeys var slack_max_block_text_length
 
     Returns
     -------
@@ -601,11 +586,15 @@ def get_single_block(text):
         returns a slack message block dictionary
     """
 
+    # limit text to 3000 characters
+    if len(text) > slack_max_block_text_length:
+        text = "%s..." % text[:(slack_max_block_text_length - 3)]
+
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
 
-def format_response(type="Host", response_objects = list()):
+def format_response(type="Host", result_objects = list()):
     """Format a slack response
 
     The objects will be sorted after name before they are compiled into
@@ -616,7 +605,7 @@ def format_response(type="Host", response_objects = list()):
     ----------
     type : str
         the object type to request (Host or Service)
-    response_objects : list
+    result_objects : list
         a list of objects to include in the Slack message
 
     Returns
@@ -629,21 +618,22 @@ def format_response(type="Host", response_objects = list()):
 
     response_blocks = None
     current_host = None
-    service_list = []
+    service_list = list()
+    response_objects = list()
 
     # no service problems
-    if len(response_objects) is not 0:
+    if len(result_objects) is not 0:
 
         # sort objects
         if type is "Host":
-            response_objects = sorted(response_objects, key=lambda k: k['name'])
+            result_objects = sorted(result_objects, key=lambda k: k['name'])
             object_emojies = enum(":white_check_mark:", ":red_circle:", ":red_circle:")
         else:
-            response_objects = sorted(response_objects, key=lambda k: (k['host_name'], k['name']))
+            result_objects = sorted(result_objects, key=lambda k: (k['host_name'], k['name']))
             object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
 
         response_blocks = []
-        for object in response_objects:
+        for object in result_objects:
             last_check = object.get("last_check_result")
             if type is "Host":
 
@@ -652,18 +642,21 @@ def format_response(type="Host", response_objects = list()):
                     host_name=object.get("name"), output=last_check.get("output")
                 )
 
-                response_blocks.extend(get_single_block(text))
+                response_objects.append(text)
 
             else:
                 if current_host and current_host != object.get("host_name"):
                     host_text = "<{web2_url}/monitoring/host/show?host={host_name}|{host_name}>".format(
                         web2_url=config["icinga.web2_url"], host_name=current_host
                     )
-                    response_blocks.extend(get_service_block(host_text, service_list))
+                    text = "*%s* (%d services)" % (host_text, len(service_list))
+
+                    response_objects.append(text)
+                    response_objects.extend(service_list)
                     service_list = []
 
                 current_host = object.get("host_name")
-                service_text = "{state_emoji} <{web2_url}/monitoring/service/show?host={host_name}&amp;service={service_name}|{service_name}>: {output}".format(
+                service_text = "&gt;{state_emoji} <{web2_url}/monitoring/service/show?host={host_name}&amp;service={service_name}|{service_name}>: {output}".format(
                     state_emoji=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
                     host_name=current_host, service_name=object.get("name"), output=last_check.get("output")
                 )
@@ -672,10 +665,27 @@ def format_response(type="Host", response_objects = list()):
 
         else:
             if type is not "Host":
+
                 host_text = "<{web2_url}/monitoring/host/show?host={host_name}|{host_name}>".format(
                     web2_url=config["icinga.web2_url"], host_name=current_host
                 )
-                response_blocks.extend(get_service_block(host_text, service_list))
+                text = "*%s* (%d services)" % (host_text, len(service_list))
+
+                response_objects.append(text)
+                response_objects.extend(service_list)
+
+
+    block_text = ""
+    for object in response_objects:
+
+        if len(block_text) + len(object) + 2 > slack_max_block_text_length:
+            response_blocks.extend(get_single_block(block_text))
+            block_text = ""
+
+        block_text += "%s\n\n" % object
+
+    else:
+        response_blocks.extend(get_single_block(block_text))
 
     return response_blocks
 
@@ -872,14 +882,17 @@ async def message(**payload):
 
             logging.debug("Sending command response to Slack")
 
-            web_client.chat_postMessage(
-                channel=channel_id,
-                text=message_text,
-                blocks=message_blocks,
-                attachments=message_attachments
-            )
+            split_blocks = lambda A, n=slack_max_message_blocks: [A[i:i + n] for i in range(0, len(A), n)]
 
-        except slack.errors.SlackApiError as e:
+            for message_blocks in split_blocks(message_blocks):
+                web_client.chat_postMessage(
+                    channel=channel_id,
+                    text=message_text[:slack_max_message_text_length],
+                    blocks=message_blocks,
+                    attachments=message_attachments
+                )
+
+        except Exception as e:
 
             logging.error("Received Slack API error: %s" % str(e))
 
@@ -1007,7 +1020,6 @@ if __name__ == "__main__":
 
     if slack_startup_message_error:
         do_error_exit("Error while posting startup message to slack (%s): %s" % (config["slack.default_channel"], slack_startup_message_error))
-
 
     # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
