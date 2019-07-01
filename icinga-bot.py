@@ -26,9 +26,6 @@ import configparser
 import json
 from datetime import datetime
 
-# use while debugging
-#import pprint
-
 
 #################
 #
@@ -41,7 +38,7 @@ from icinga2api.client import Client as I2Client, Icinga2ApiException
 
 
 __version__ = "0.0.1"
-__version_date__ = "2019-06-29"
+__version_date__ = "2019-07-01"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 __description__ = "Icinga2 Slack bot"
 __license__ = "MIT"
@@ -64,6 +61,8 @@ slack_max_message_attachments = 100
 
 github_logo_url = "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
 
+max_messages_to_display_detailed_status = 4
+
 #################
 #
 #   internal vars
@@ -77,6 +76,128 @@ valid_log_levels = [ "DEBUG", "INFO", "WARNING", "ERROR"]
 args = None
 config = None
 
+plural = lambda x : "s" if x != 1 else ""
+yes_no = lambda x: "Yes" if x > 0 else "No"
+
+
+#################
+#
+#   classes
+#
+
+class SlackResponse:
+    """
+    A class used to represent a Slack Response
+
+    Attributes
+    ----------
+    text : str
+        a string which will be used in "text" attribute of the Slack Post
+    blocks : str, list, dict
+        holds all the Slack message blocks
+    attachments : list, dict, SlackAttachment
+        holds all the Slack message attachments
+
+    Methods
+    -------
+    add_blocks(block)
+        add a Slack message block. If 'block' is a string it will be converted into
+        a block using method get_single_block()
+    add_attachment(attachment)
+        adds a new attachment to this response.
+    dump_attachments()
+        returns this.attachments as json blob
+    get_single_block(text)
+        return a slack message block
+    """
+
+    def __init__(self,
+                 text = None,
+                 blocks = None,
+                 attachments = None):
+        self.text = text
+        self.blocks = []
+        self.attachments = []
+
+        if blocks:
+            self.add_block(blocks)
+
+        if attachments:
+            self.add_attachment(attachments)
+
+    def add_block(self, block):
+
+        if block is None or len(block) == 0:
+            return
+        if isinstance(block, dict):
+            self.blocks.append(block)
+        elif isinstance(block, list):
+            self.blocks.extend(block)
+        else:
+            self.blocks.extend(self.get_single_block(block))
+
+    def add_attachment(self, attachment):
+
+        if attachment is None or len(attachment) == 0:
+            return
+        if isinstance(attachment, dict):
+            self.attachments.append(attachment)
+        elif isinstance(attachment, list):
+            self.attachments.extend(attachment)
+        elif isinstance(attachment, SlackAttachment):
+            self.attachments.append(vars(attachment))
+
+    def dump_attachments(self):
+
+        if len(self.attachments) == 0:
+            return None
+
+        return json.dumps(self.attachments)
+
+    @staticmethod
+    def get_single_block(text):
+        """return a slack message block
+
+        Parameters
+        ----------
+        text : str
+            text to add to slack message block
+            obeys var slack_max_block_text_length
+
+        Returns
+        -------
+        dict
+            returns a slack message block dictionary
+        """
+
+        # limit text to 3000 characters
+        if len(text) > slack_max_block_text_length:
+            text = "%s..." % text[:(slack_max_block_text_length - 3)]
+
+        return [
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        ]
+
+class SlackAttachment:
+    """
+    A simple placeholder class to manipulate attachments
+    """
+
+    def __init__(self):
+        pass
+
+
+class RequestResponse:
+    """
+    A class used to hold responses for different kinds of requests
+    """
+
+    def __init__(self,
+                 response = None,
+                 error = None):
+
+        self.response = response
+        self.error = error
 
 #################
 #
@@ -121,8 +242,6 @@ def parse_own_config(config_file):
     """
 
     config_dict = {}
-
-    global args
 
     config_error = False
 
@@ -233,8 +352,6 @@ def set_log_level(log_level = None):
 
     """
 
-    global valid_log_levels
-
     # check set log level against self defined log level array
     if not log_level.upper() in valid_log_levels:
         do_error_exit('Invalid log level: %s' % log_level)
@@ -265,8 +382,6 @@ def setup_logging(log_level = None):
         Log level to use during runtime (defaults to default_log_level)
 
     """
-
-    global args
 
     if args.daemon:
         # omit time stamp if run in daemon mode
@@ -299,8 +414,6 @@ def setup_icinga_connection():
             i2_error: an error string in case a client connection failed
     """
 
-    global config
-
     i2_handle = None
     i2_error = None
 
@@ -323,36 +436,37 @@ def setup_icinga_connection():
 def get_i2_status(application = None):
     """Request Icinga2 API Endpoint /v1/status
 
+    Parameters
+    ----------
+    application : str, optional
+        application to request (defaults are all applications)
+
     Returns
     -------
-    tuple
-        returns a tuple with two elements
-            i2_response: json response
-            i2_error: an error string in case the query failed
+    RequestResponse: with Icinga2 status
     """
 
-    i2_response = None
+    response = RequestResponse()
 
     i2_handle, i2_error  = setup_icinga_connection()
 
     if not i2_handle:
         if i2_error is not None:
-            return None, i2_error
+            return RequestResponse(error=i2_error)
         else:
-            return None, "Unknown error while setting up Icinga2 connection"
+            return RequestResponse(error="Unknown error while setting up Icinga2 connection")
 
     try:
         logging.debug("Requesting Icinga2 status for application: %s " % application)
 
-        i2_response = i2_handle.status.list(application)
+        response.response = i2_handle.status.list(application)
 
     except Exception as e:
-        i2_error = str(e)
-        logging.error("Unable to query Icinga2 status: %s" % i2_error)
+        response.error = str(e)
+        logging.error("Unable to query Icinga2 status: %s" % response.error)
         pass
 
-    return i2_response, i2_error
-
+    return response
 
 def get_i2_object(type="Host", filter_states=None, filter_names=None):
     """Request Icinga2 API Endpoint /v1/objects
@@ -370,22 +484,19 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
 
     Returns
     -------
-    tuple
-        returns a tuple with two elements
-            i2_response: json response
-            i2_error: an error string in case the query failed
+    RequestResponse: with Icinga host/service objects
     """
 
-    i2_response = None
+    response = RequestResponse()
     i2_filters = None
 
     i2_handle, i2_error = setup_icinga_connection()
 
     if not i2_handle:
         if i2_error is not None:
-            return None, i2_error
+            return RequestResponse(error=i2_error)
         else:
-            return None, "Unknown error while setting up Icinga2 connection"
+            return RequestResponse(error="Unknown error while setting up Icinga2 connection")
 
     # default attributes to query
     list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change']
@@ -407,7 +518,7 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
 
             hosts = list()
             for host in filter_names:
-                hosts.append(f'match("*{host}*", host.name)')
+                hosts.append('match("*%s*", host.name)' % host)
             i2_filters += '(' + ' || '.join(hosts) + ')'
         else:
 
@@ -430,41 +541,47 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
     logging.debug("Used filter for Icinga2 query: %s" % i2_filters)
 
     try:
-        i2_response = i2_handle.objects.list(type, attrs=list_attrs, filters=i2_filters)
+        response.response = i2_handle.objects.list(type, attrs=list_attrs, filters=i2_filters)
 
     except Icinga2ApiException as e:
-        i2_error = str(e)
-        if "failed with status" in i2_error:
-            error = i2_error.split(" failed with status ")[1]
+        response.error = str(e)
+        if "failed with status" in response.error:
+            error = response.error.split(" failed with status ")[1]
             return_code, icinga_return = error.split(":", 1)
             icinga_return = json.loads(icinga_return)
-            i2_error = "Error %s: %s" % ( return_code, icinga_return.get("status"))
+            response.error = "Error %s: %s" % ( return_code, icinga_return.get("status"))
 
             if int(return_code) == 404:
-                i2_response = "No match for %s" % filter_states
+                response.response = "No match for %s" % filter_states
                 if filter_names:
-                    i2_response += " and %s" % filter_names
-                i2_response += " found."
+                    response.response += " and %s" % filter_names
+                response.response += " found."
 
-                i2_error = None
+                response.error = None
             pass
 
     except Exception as e:
-        i2_error = str(e)
+        response.error = str(e)
         pass
 
-    if i2_error is None and i2_response is not None and isinstance(i2_response, list):
+    if response.error is None and response.response is not None and isinstance(response.response, list):
         response_objects = list()
-        for object in i2_response:
+        for object in response.response:
             response_objects.append(object.get("attrs"))
-        i2_response = response_objects
+        response.response = response_objects
 
-        logging.debug("Icinga2 returned with %d results" % len(i2_response))
+        # sort objects
+        if type is "Host":
+            response.response = sorted(response.response, key=lambda k: k['name'])
+        else:
+            response.response = sorted(response.response, key=lambda k: (k['host_name'], k['name']))
 
-    if i2_error:
-        logging.error("Unable to query Icinga2 status: %s" % i2_error)
+        logging.debug("Icinga2 returned with %d results" % len(response.response))
 
-    return i2_response, i2_error
+    if response.error:
+        logging.error("Unable to query Icinga2 status: %s" % response.error)
+
+    return response
 
 def get_i2_filter(type="Host", slack_message=""):
     """Parse a Slack message and create lists of filters depending on the
@@ -581,35 +698,42 @@ def get_i2_filter(type="Host", slack_message=""):
 
     return filter_states, filter_options, filter_error
 
-def get_single_block(text):
-    """return a slack message block
+def get_web2_slack_url(host, service = None):
+    """
+    Return a Slack formatted hyperlink
 
     Parameters
     ----------
-    text : str
-        text to add to slack message block
-        obeys var slack_max_block_text_length
+    host: str
+        host name to use for url. If service is None a hyperlink
+        to a Icingaweb2 host page will be returned
+    service : str, optional
+        service name to use for url. A hyperlink
+        to a Icingaweb2 service page will be returned
 
     Returns
     -------
-    dict
-        returns a slack message block dictionary
+    str: formatted url
     """
 
-    # limit text to 3000 characters
-    if len(text) > slack_max_block_text_length:
-        text = "%s..." % text[:(slack_max_block_text_length - 3)]
+    if host is None:
+        return
 
-    return [
-        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-    ]
+    if service:
+        url = "<{web2_url}/monitoring/service/show?host={host_name}&amp;service={service_name}|{service_name}>"
+    else:
+        url = "<{web2_url}/monitoring/host/show?host={host_name}|{host_name}>"
+
+    url = url.format(web2_url=config["icinga.web2_url"], host_name=host, service_name=service)
+
+    return url
 
 def format_response(type="Host", result_objects = list()):
     """Format a slack response
 
-    The objects will be sorted after name before they are compiled into
-    a response. Service objects will first be sorted after host name and
-    then after service name
+    The objects will compiled into Slack message blocks.
+    This function will try to fill up blocks until
+    'slack_max_block_text_length' is reached.
 
     Parameters
     ----------
@@ -624,45 +748,44 @@ def format_response(type="Host", result_objects = list()):
         returns a list of slack message blocks
     """
 
-    global config
-
-    response_blocks = None
+    response = SlackResponse()
     current_host = None
     service_list = list()
     response_objects = list()
 
-    # no service problems
-    if len(result_objects) is not 0:
+    if len(result_objects) != 0:
 
-        # sort objects
+        # set state emoji
         if type is "Host":
-            result_objects = sorted(result_objects, key=lambda k: k['name'])
             object_emojies = enum(":white_check_mark:", ":red_circle:", ":red_circle:")
         else:
-            result_objects = sorted(result_objects, key=lambda k: (k['host_name'], k['name']))
             object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
-
-        response_blocks = []
 
         # append an "end marker" to avoid code redundancy
         result_objects.append({ "last_object" : True })
+
+        # add formatted text for each object to response_objects
         for object in result_objects:
             last_check = object.get("last_check_result")
+
             if type is "Host":
 
-                text = "{state_emoji} <{web2_url}/monitoring/host/show?host={host_name}|{host_name}>: {output}".format(
-                    state_emoji=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
-                    host_name=object.get("name"), output=last_check.get("output")
+                # stop if we found the "end marker"
+                if object.get("last_object"):
+                    break
+
+                text = "{state_emoji} {url}: {output}".format(
+                    state_emoji=object_emojies.reverse[object.get("state")],
+                    url=get_web2_slack_url(object.get("name")), output=last_check.get("output")
                 )
 
                 response_objects.append(text)
 
             else:
                 if (current_host and current_host != object.get("host_name")) or object.get("last_object"):
-                    host_text = "<{web2_url}/monitoring/host/show?host={host_name}|{host_name}>".format(
-                        web2_url=config["icinga.web2_url"], host_name=current_host
-                    )
-                    text = "*%s* (%d services)" % (host_text, len(service_list))
+
+                    text = "*%s* (%d service%s)" % \
+                           (get_web2_slack_url(current_host), len(service_list), plural(len(service_list)))
 
                     response_objects.append(text)
                     response_objects.extend(service_list)
@@ -674,29 +797,239 @@ def format_response(type="Host", result_objects = list()):
 
                 current_host = object.get("host_name")
 
-                service_text = "&gt;{state_emoji} <{web2_url}/monitoring/service/show?host={host_name}" + \
-                               "&amp;service={service_name}|{service_name}>: {output}"
+                service_text = "&gt;{state_emoji} {url}: {output}"
 
                 service_text = service_text.format(
-                    state_emoji=object_emojies.reverse[object.get("state")], web2_url=config["icinga.web2_url"],
-                    host_name=current_host, service_name=object.get("name"), output=last_check.get("output")
+                    state_emoji=object_emojies.reverse[object.get("state")],
+                    url=get_web2_slack_url(current_host, object.get("name")), output=last_check.get("output")
                 )
 
                 service_list.append(service_text)
 
+    # fill blocks with formatted response
     block_text = ""
     for object in response_objects:
 
         if len(block_text) + len(object) + 2 > slack_max_block_text_length:
-            response_blocks.extend(get_single_block(block_text))
+            response.add_block(block_text)
             block_text = ""
 
         block_text += "%s\n\n" % object
 
     else:
-        response_blocks.extend(get_single_block(block_text))
+        response.add_block(block_text)
 
-    return response_blocks
+    return response.blocks
+
+def run_icinga_status_query(status_type = None, slack_message = None):
+    """
+    Query Icinga2 to get host/service status based on Slack command
+
+    First the Slack message will be parsed for object status and
+    names. Then the response will be compiled based on the amount
+    of returned objects. A more detailed object list will be returned
+    if the results are 'max_messages_to_display_detailed_status' or less.
+
+    Parameters
+    ----------
+    status_type : str
+        the object type to request (Host or Service)
+    slack_message : string
+        the Slack command which will be parsed
+
+
+    Returns
+    -------
+    SlackResponse: with command result
+    """
+
+    response = SlackResponse()
+
+    i2_filter_status, i2_filter_names, i2_filter_error = get_i2_filter(status_type, slack_message)
+
+    # inform user about the filter mistake
+    if i2_filter_error:
+
+        logging.debug("Found error during filter compilation. Icinga2 won't be queried.")
+
+        if len(i2_filter_error) == 1:
+            i2_error_response = "filter '%s' not valid for %s status commands,\ncheck `help` command" % \
+                                (i2_filter_error[0], status_type)
+        else:
+            i2_error_response = \
+                "filters '%s' and '%s' are not valid for %s status commands,\ncheck `help` command" % \
+                ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type)
+
+        response.text = "Command error"
+        response.add_block("*I'm having trouble understanding what you meant*")
+        response.add_attachment(
+            {
+                "fallback":  response.text,
+                "text" : i2_error_response,
+                "color": "danger"
+            }
+        )
+
+    else:
+
+        # get icinga objects
+        i2_response = get_i2_object(status_type, i2_filter_status, i2_filter_names)
+
+        if i2_response.error:
+            response.text = "Icinga request error"
+            response.add_block("*%s*" % response.text)
+            response.add_attachment(
+                {
+                    "fallback":  response.text,
+                    "text" : "Error: %s" % i2_response.error,
+                    "color": "danger"
+                }
+            )
+
+        # Just a String was returned
+        elif type(i2_response.response) is str:
+            response.text = "Icinga status response"
+            response.add_block(i2_response.response)
+
+        # show more detailed information if only a few objects are returned
+        elif len(i2_response.response) in list(range(1, (max_messages_to_display_detailed_status +1))):
+
+            response.text = "Icinga status response"
+            block_text = "Found %d matching %s%s" % \
+                         (len(i2_response.response), status_type.lower(), plural(len(i2_response.response)))
+
+            response.add_block(block_text)
+
+            for object in i2_response.response:
+                if object.get("host_name"):
+                    host_name = object.get("host_name")
+                    service_name = object.get("name")
+                    states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
+                    colors = enum("good", "warning", "danger", "lila")
+                else:
+                    host_name = object.get("name")
+                    service_name = None
+                    states = enum("UP", "DOWN", "UNREACHABLE")
+                    colors = enum("good", "danger", "danger")
+
+                host_url = get_web2_slack_url(host_name)
+                service_url = get_web2_slack_url(host_name,service_name)
+
+                if object.get("host_name"):
+                    text = "*%s | %s*" % (host_url, service_url)
+                else:
+                    text = "*%s*" % host_url
+
+                object_fields = {
+                    "Output": object.get("last_check_result").get("output"),
+                    "Last State Change": ts_to_date(object.get("last_state_change")),
+                    "Status": states.reverse[object.get("state")],
+                    "Acknowledged": yes_no(object.get("acknowledgement")),
+                    "In Downtime": yes_no(object.get("downtime_depth"))
+                }
+
+                fields = list()
+                for title, value in object_fields.items():
+                    short = True
+                    if title in ["Output"]:
+                        short = False
+                    fields.append({
+                        "title": title,
+                        "value": value,
+                        "short": short
+                    })
+
+                response.add_attachment(
+                    {
+                        "color": colors.reverse[object.get("state")],
+                        "text": text,
+                        "fields": fields
+                    }
+                )
+
+        # the more condensed object list
+        elif len(i2_response.response) > 0:
+
+            block_text = "Found %d matching %s%s" % \
+                         (len(i2_response.response), status_type.lower(), plural(len(i2_response.response)))
+
+            response.text = "Icinga status response"
+            response.add_block(block_text)
+            response.add_block(format_response(status_type, i2_response.response))
+
+        # the result returned empty
+        else:
+            problematic_text = ""
+
+            if len(i2_filter_status) == 1 and \
+               i2_filter_status[0] in ["host.state != HostUP", "service.state != ServiceOK"]:
+                problematic_text = "problematic "
+
+            response.text = "No %s%s objects " % (problematic_text,status_type.lower())
+
+            if len(i2_filter_names) == 1:
+                response.text += "for '%s' " % i2_filter_names[0]
+            elif len(i2_filter_names) > 1:
+                response.text += "for '%s' and '%s' " % ("', '".join(i2_filter_names[:-1]), i2_filter_names[-1])
+
+            response.text += "found."
+
+            if len(problematic_text) != 0:
+                response.text += " Everything seems in good condition."
+
+    return response
+
+def slack_command_help():
+    """
+    Return a short command description
+
+    Returns
+    -------
+    SlackResponse: with help text
+    """
+
+    commands = {
+        "help":                 "this help",
+        "ping":                 "bot will answer with `pong`",
+        "service status (ss)":  "display service status of all services in non OK state",
+        "host status (hs)":     "display host status of all hosts in non UP state"
+    }
+
+    fields = list()
+    for command, description in commands.items():
+        fields.append({
+            "title": "`<bot> %s`" % command,
+            "value": description
+        })
+
+    return SlackResponse(
+        text = "Bot help",
+        blocks = "*Following commands are implemented*",
+        attachments = {
+            "fallback" : "Bot help",
+            "color": "#03A8F3",
+            "fields": fields,
+            "footer": "<%s#command-status-filter|Further Help @ GitHub>" % __url__,
+            "footer_icon": github_logo_url
+        }
+    )
+
+def ts_to_date(ts, format = "%Y-%m-%d %H:%M:%S"):
+    """
+    Return a formatted date/time string from a given time stamp
+
+    Parameters
+    ----------
+    ts : int, float
+        time stamp to convert
+    format : string
+        format to convert time stamp to
+
+    Returns
+    -------
+    str: formatted date/time string
+    """
+    return datetime.fromtimestamp(ts).strftime(format)
 
 async def handle_command(slack_message):
     """parse a Slack message and try to interpret commands
@@ -716,15 +1049,10 @@ async def handle_command(slack_message):
 
     Returns
     -------
-    list
-        returns a list of slack message blocks
+    SlackResponse: with response for Slack command
     """
 
-    global github_logo_url
-
-    response_text = None
-    response_blocks = None
-    response_attachment = None
+    response = None
     status_type = None
 
     default_response_text = "I didn't understand the command. Please use `help` for more details."
@@ -739,37 +1067,16 @@ async def handle_command(slack_message):
     if slack_message.startswith("ping"):
 
         logging.debug("Found 'ping' command")
-        response_text = "pong :table_tennis_paddle_and_ball:"
+
+        response = SlackResponse(
+            text = "pong :table_tennis_paddle_and_ball:"
+        )
 
     elif slack_message.startswith("help"):
 
         logging.debug("Found 'help' command")
 
-        commands = {
-            "help":                 "this help",
-            "ping":                 "bot will answer with `pong`",
-            "service status (ss)":  "display service status of all services in non OK state",
-            "host status (hs)":     "display host status of all hosts in non UP state"
-        }
-
-        fields = list()
-        for command, description in commands.items():
-            fields.append({
-                "title": "`<bot> %s`" % command,
-                "value": description
-            })
-
-        response_text = "Bot help"
-        response_blocks = get_single_block("*Following commands are implemented*")
-        response_attachment = [
-            {
-                "fallback" : response_text,
-                "color": "#03A8F3",
-                "fields": fields,
-                "footer": f"<{__url__}#command-status-filter|Further Help @ GitHub>",
-                "footer_icon": github_logo_url
-            }
-        ]
+        response = slack_command_help()
 
     elif slack_message.startswith("service status") or slack_message.startswith("ss"):
 
@@ -795,64 +1102,15 @@ async def handle_command(slack_message):
 
     # query icinga
     if status_type:
+        response = run_icinga_status_query(status_type, slack_message)
 
-        i2_filter_status, i2_filter_names, i2_filter_error = get_i2_filter(status_type, slack_message)
+    if not response:
 
-        # inform user about the filter mistake
-        if i2_filter_error:
+        response = SlackResponse(
+            text = default_response_text
+        )
 
-            logging.debug("Found error during filter compilation. Icinga2 won't be queried.")
-
-            if len(i2_filter_error) == 1:
-                i2_error_response = "filter '%s' not valid for %s status commands,\ncheck `help` command" % \
-                                    (i2_filter_error[0], status_type)
-            else:
-                i2_error_response = \
-                    "filters '%s' and '%s' are not valid for %s status commands,\ncheck `help` command" % \
-                    ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type)
-
-            response_text = "Command error"
-            response_blocks = get_single_block("*I'm having trouble understanding what you meant*")
-            response_attachment = [
-                {
-                    "fallback" : response_text,
-                    "color": "danger",
-                    "text": i2_error_response
-                }
-            ]
-
-        else:
-
-            # get icinga objects
-            i2_response, i2_error = get_i2_object(status_type, i2_filter_status, i2_filter_names)
-
-            if i2_error:
-                response_text = "Icinga request error"
-                response_blocks = get_single_block("*%s*" % response_text)
-                response_attachment = [
-                    {
-                        "fallback": response_text,
-                        "color": "danger",
-                        "text": "Error: %s" % i2_error
-                    }
-                ]
-
-            elif type(i2_response) is str:
-                response_text = "Icinga status response"
-                response_blocks = get_single_block(i2_response)
-            else:
-                response_text = "Icinga status response"
-                response_blocks = format_response(status_type, i2_response)
-
-            if not response_blocks:
-                response_text = "No problematic %s objects found. Everything seems in good condition." \
-                                % status_type.lower()
-
-    if not response_text and not response_blocks and not response_attachment:
-        response_text = default_response_text
-        response_blocks = get_single_block(default_response_text)
-
-    return response_text, response_blocks, response_attachment
+    return response
 
 @slack.RTMClient.run_on(event="message")
 async def message(**payload):
@@ -867,10 +1125,6 @@ async def message(**payload):
     payload : object
         Slack payload to parse
 
-    Returns
-    -------
-    list
-        returns a list of slack message blocks
     """
 
     data = payload["data"]
@@ -887,86 +1141,117 @@ async def message(**payload):
         logging.debug("Received new Slack message: %s" % data.get("text"))
 
         # parse command
-        message_text, message_blocks, message_attachments = await handle_command(data.get("text"))
+        response = await handle_command(data.get("text"))
 
-        if message_attachments:
-            message_attachments = json.dumps(message_attachments)
+        slack_api_response = post_slack_message(web_client, channel_id, response)
 
-        post_slack_message(web_client, channel_id, message_text, message_blocks, message_attachments)
+        if slack_api_response.error:
+
+            # format error message block
+            header_text = "Slack API error while posting to Slack"
+            error_message = SlackResponse(
+                text = header_text,
+                blocks = "*%s*" % header_text,
+                attachments = {
+                    "fallback": header_text,
+                    "text": slack_api_response.error,
+                    "color": "danger"
+                }
+            )
+
+            post_slack_message(web_client, channel_id, error_message)
 
     return
 
-def post_slack_message(handle = None,
-                       channel = None,
-                       message_text = None,
-                       message_blocks = None,
-                       message_attachments = None):
-    """post a message to Slack
+def post_slack_message(handle = None, channel = None, slack_response = None):
+    """
+    Post a message to Slack
 
     Parameters
     ----------
     handle: object
-        the Slack client hand to use
+        the Slack client handle to use
     channel: str
         Slack channel to post message to
-    message_text: str
-        message to post to Slack
-    message_blocks: str, optional
-        message in blocks format
-    message_attachments: list, optional
-        list of slack attachments
+    slack_response: SlackResponse
+        Slack response object
 
     Returns
     -------
-    tuple
-        returns a tuple with two elements
-            response: slack response object
-            error: error string if error occurred
+    RequestResponse: slack response from posting a message
     """
 
-    error = None
-    response = None
 
-    if handle is None:
-        return response, "Error in function 'post_slack_message': no client handle defined"
-    if channel is None:
-        return response, "Error in function 'post_slack_message': no channel defined"
-    if message_text is None:
-        return response, "Error in function 'post_slack_message': no message text defined"
+    def __do_post(text, blocks, attachments):
 
-    # use lambda function to split message_blocks zu chunks of 'slack_max_message_blocks' blocks
-    split_blocks = lambda a, n=slack_max_message_blocks: [a[i:i + n] for i in range(0, len(a), n)]
+        this_response = RequestResponse()
 
-    if message_blocks and len(message_blocks) > 50:
-        logging.debug("Sending multiple Slack messages as the number of blocks %d exceeds the maximum of %d" %
-                      (len(message_blocks), slack_max_message_blocks))
-
-    # post the message
-    for message_blocks in split_blocks(message_blocks):
-
+        # try to send of message
         try:
             logging.debug("Posting Slack message to channel '%s'" % channel)
 
-            response = handle.chat_postMessage(
+            this_response.response = handle.chat_postMessage(
                 channel=channel,
-                text=message_text[:slack_max_message_text_length],
-                blocks=message_blocks,
-                attachments=message_attachments
+                text=text[:slack_max_message_text_length],
+                blocks=blocks,
+                attachments=attachments
             )
 
         except slack.errors.SlackApiError as e:
-            response = e.response
-            error = response.get("error")
+            this_response.response = e.response
+            this_response.error = this_response.response.get("error")
 
         except Exception as e:
-            error = str(e)
+            this_response.error = str(e)
 
-        if error:
-            logging.error("Posting Slack message to channel '%s' failed: " % error)
+        return this_response
+
+
+    response = RequestResponse()
+
+    if handle is None:
+        return RequestResponse(error="Error in function 'post_slack_message': no client handle defined")
+    if channel is None:
+        return RequestResponse(error="Error in function 'post_slack_message': no channel defined")
+    if slack_response is None:
+        return RequestResponse(error="Error in function 'post_slack_message': no slack_response defined")
+
+    # split post into multiple posts
+    if slack_response.blocks is not None and len(slack_response.blocks) > 50:
+
+        # use lambda function to split message_blocks to chunks of 'slack_max_message_blocks' blocks
+        split_blocks = lambda a, n=slack_max_message_blocks: [a[i:i + n] for i in range(0, len(a), n)]
+
+        splitted_blocks = split_blocks(slack_response.blocks)
+
+        logging.debug("Sending multiple Slack messages as the number of blocks %d exceeds the maximum of %d" %
+                      (len(slack_response.blocks), slack_max_message_blocks))
+
+        post_iteration = 1
+        for message_blocks in splitted_blocks:
+
+            last_message_attachments = None
+
+            # get attachments and send them only with the last message
+            if post_iteration == len(splitted_blocks):
+                last_message_attachments = slack_response.dump_attachments()
+
+            response = __do_post(slack_response.text, message_blocks, last_message_attachments)
+
+            if response.error:
+                break
+
+            post_iteration += 1
+
+    else:
+
+        response = __do_post(slack_response.text, slack_response.blocks, slack_response.dump_attachments())
+
+    if response.error:
+        logging.error("Posting Slack message to channel '%s' failed: " % response.error)
 
     # only the response of the last message will be returned
-    return response, error
-
+    return response
 
 if __name__ == "__main__":
     """main 'function' will setup the Slack bot and initialize connections"""
@@ -992,58 +1277,52 @@ if __name__ == "__main__":
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
     # set up icinga
-    i2_status_response, i2_status_error = get_i2_status("IcingaApplication")
+    i2_status = get_i2_status("IcingaApplication")
 
-    if i2_status_error:
+    status_reply = SlackResponse()
+    status_color = "good"
+
+    if i2_status.error:
 
         # format error message block
-        status_text = "Icinga connection error during bot start"
-        status_blocks = get_single_block("*%s*" % status_text)
-        status_attachments = [
-            {
-                "fallback": status_text,
-                "color": "danger",
-                "text": i2_status_error
-            }
-        ]
+        status_header = "Icinga connection error during bot start"
+        status_text = i2_status.error
+        status_color = "danger"
 
     else:
 
         # get icinga app status from response
-        icing_status = i2_status_response["results"][0]["status"]["icingaapplication"]["app"]
-        icinga_start_date_time = datetime.fromtimestamp(icing_status["program_start"])
+        icing_status = i2_status.response["results"][0]["status"]["icingaapplication"]["app"]
 
         icinga_status_text = list()
         icinga_status_text.append("Successfully connected to Icinga")
         icinga_status_text.append("Node name: *%s*" % icing_status["node_name"])
         icinga_status_text.append("Version: *%s*" % icing_status["version"])
-        icinga_status_text.append("Running since: *%s*" % icinga_start_date_time.strftime("%Y-%m-%d %H:%M:%S"))
+        icinga_status_text.append("Running since: *%s*" % ts_to_date(icing_status["program_start"]))
 
-        # format message block
-        status_text = "Starting up %s" % __description__
-        status_blocks = get_single_block("*%s*" % status_text)
-        status_attachments = [
-            {
-                "fallback": status_text,
-                "color": "good",
-                "text": "\n\t".join(icinga_status_text)
-            }
-        ]
+        status_header = "Starting up %s" % __description__
+        status_text = "\n\t".join(icinga_status_text)
+
+    status_reply.text = status_header
+    status_reply.add_block("*%s*" % status_header)
+    status_reply.add_attachment(
+        {
+            "fallback": status_header,
+            "text": status_text,
+            "color": status_color
+        }
+    )
 
     # message about start
     client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)
 
-    slack_startup_message_response, slack_startup_message_error = \
-        post_slack_message(client,
-                           config["slack.default_channel"],
-                           status_text,
-                           status_blocks,
-                           status_attachments)
-    del client
+    post_response = post_slack_message(client, config["slack.default_channel"], status_reply)
 
-    if slack_startup_message_error:
+    del client, status_reply
+
+    if post_response.error:
         do_error_exit("Error while posting startup message to slack (%s): %s" %
-                      (config["slack.default_channel"], slack_startup_message_error))
+                      (config["slack.default_channel"], post_response.error))
 
 
     loop = asyncio.new_event_loop()

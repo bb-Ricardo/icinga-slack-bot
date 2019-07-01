@@ -22,9 +22,12 @@ used to narrow down the returned status list.
 * ~add all icinga2api connection options (ca, cert, key, timeout)~
 * ~add icingaweb2 url to bot responses and error handler~
 * ~circumvent *"[ERROR] block must be less than 3000 characters"*~
-* add state change time to host and service status messages
+* ~add state change time to host and service status messages~
 * ~add fallback text to slack messages to display push messages~
 * ~use attachments to display bot commands~
+* update readme
+* create issues for next release features
+* create github release
 
 ### Next releases
 * acknowledge problems
@@ -36,6 +39,7 @@ used to narrow down the returned status list.
 * implement a way to exclude handled problems in default status query
 * add limit of max returned results
 * add filter option to config file to limit results to single hosts or host groups
+* detailed command help description (i.e.: help hs)
 
 ## Requirements
 * python >= 3.6
