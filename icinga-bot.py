@@ -8,8 +8,6 @@ Icinga2 API to get Host/Service status details. Simple status filters can be
 used to narrow down the returned status list.
 """
 
-# The slack basics are mostly taken from here:
-# https://github.com/slackapi/python-slackclient/blob/master/tutorial/02-building-a-message.md
 
 #################
 #
@@ -37,8 +35,8 @@ import slack
 from icinga2api.client import Client as I2Client, Icinga2ApiException
 
 
-__version__ = "0.0.1"
-__version_date__ = "2019-07-02"
+__version__ = "0.1.0"
+__version_date__ = "2019-07-03"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 __description__ = "Icinga2 Slack bot"
 __license__ = "MIT"

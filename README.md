@@ -5,47 +5,13 @@ It can be used to interact with Icinga2 from your Slack client. It uses the
 Icinga2 API to get Host/Service status details. Simple status filters can be
 used to narrow down the returned status list.
 
-## Features
-
-## ToDo
-### This release
-* ~check icinga connection~
-* ~configure default channel to post after bot start~
-* ~proper message formatting~
-* ~add systemd unit file~
-* ~add README.md~
-* ~fix logging~
-* ~document functions~
-* ~add debug logging~
-* ~add description~
-* ~proper icinga2 error handling~
-* ~add all icinga2api connection options (ca, cert, key, timeout)~
-* ~add icingaweb2 url to bot responses and error handler~
-* ~circumvent *"[ERROR] block must be less than 3000 characters"*~
-* ~add state change time to host and service status messages~
-* ~add fallback text to slack messages to display push messages~
-* ~use attachments to display bot commands~
-* ~update readme~
-* create issues for next release features
-* create github release
-
-### Next releases
-* acknowledge problems
-* add tactical overview (tac) command
-* add docker file
-* set downtimes
-* handle slack connection problems
-* add icinga status command
-* implement a way to exclude handled problems in default status query
-* add limit of max returned results
-* add filter option to config file to limit results to single hosts or host groups
-* detailed command help description (i.e.: help hs)
-* make use of slackclient >= 2.1.0 message builder classes
 
 ## Requirements
 * python >= 3.6
-* python-slackclient >= 2.1.0
-* Icinga2 with API feature enabled
+* python-slackclient >= 2.0.0
+* certifi >= 2018
+* icinga2api >= 0.6.0
+* Icinga2 instance with API feature enabled
 
 ## Installation
 
@@ -75,7 +41,7 @@ Most likely the start will fail as the config is not fully set up.
 >**It is recommended to create your own config**
 >```cp icinga-bot.ini.sample icinga-bot.ini```
 
-Change config options according your environment. Now you should be able to start the bot.
+Change config options according your environment. After you entered the Slack tokens you should be able to start the bot.
 
 ### Run as a service
 * a [systemd unit file](icinga-slack-bot.service) is included but needs to be adopted if the installation path is changed
@@ -124,7 +90,7 @@ It can be used to interact with Icinga2 from your Slack client. It uses the
 Icinga2 API to get Host/Service status details. Simple status filters can be
 used to narrow down the returned status list.
 
-Version: 0.0.1 (2019-07-02)
+Version: 0.1.0 (2019-07-03)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -190,7 +156,7 @@ Also just parts of host and service names can be used to search for objects
 * ```ss``` will display all services which currently have a problem
 
 ***Important:***
-* The [detailed](#All_problematic_services) view will only be used if there **1 to 4** status results
+* The [detailed](#all-problematic-services) view will only be used if there are **1 to 4** status results
 
 #### Help
 ![help example](docs/bot_help_answer.png)
