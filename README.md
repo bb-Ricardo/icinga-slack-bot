@@ -25,7 +25,7 @@ used to narrow down the returned status list.
 * ~add state change time to host and service status messages~
 * ~add fallback text to slack messages to display push messages~
 * ~use attachments to display bot commands~
-* update readme
+* ~update readme~
 * create issues for next release features
 * create github release
 
@@ -40,9 +40,11 @@ used to narrow down the returned status list.
 * add limit of max returned results
 * add filter option to config file to limit results to single hosts or host groups
 * detailed command help description (i.e.: help hs)
+* make use of slackclient >= 2.1.0 message builder classes
 
 ## Requirements
 * python >= 3.6
+* python-slackclient >= 2.1.0
 * Icinga2 with API feature enabled
 
 ## Installation
@@ -122,7 +124,7 @@ It can be used to interact with Icinga2 from your Slack client. It uses the
 Icinga2 API to get Host/Service status details. Simple status filters can be
 used to narrow down the returned status list.
 
-Version: 0.0.1 (2019-05-28)
+Version: 0.0.1 (2019-07-02)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -165,22 +167,59 @@ command filter can be combined like "warn crit" which would return all services 
 ***Important:***
 * The default host status filter will only display hosts which are **NOT** UP
 * The default service status filter will only display services which are **NOT** OK
+* To display all host/service status just add the keyword **all** to your command
 
 ### Command name filter
 You can add host names or services names to any status command.
 Also just parts of host and service names can be used to search for objects
 
+***Important:***
+* when using the *service status* command only the **first two** names will be used as filter and all others are going to be ignored
+* a command like `ss crit test web` will be converted into a filter like:
+`
+(service.state == 2) && ( match("*test*", host.name) && match("*web*", service.name) ) || ( match("*web*", host.name) && match("*test*", service.name) )
+`
+
 ### Command examples
 * ```hs down test``` will display all hosts in DOWN state which match "test" as host name like "testserver" or "devtest"
 * ```hs all``` will return all hosts and their status
-* ```hs``` will display all hosts which are currently have a problem
+* ```hs``` will display all hosts which currently have a problem
 
 
-* ```ss warn crit ntp``` will display all services which match "ntp" and are in the state CRITICAL or WARNING
-* ```ss``` will display all services which are currently have a problem
+* ```ss warn crit ntp``` will display all services which match "ntp" and are in state CRITICAL or WARNING
+* ```ss``` will display all services which currently have a problem
 
-## Alert Notification
+***Important:***
+* The [detailed](#All_problematic_services) view will only be used if there **1 to 4** status results
+
+#### Help
+![help example](docs/bot_help_answer.png)
+
+#### Detailed host status example
+![detailed host answer](docs/bot_detailed_host_answer.png)
+
+#### Detailed service status example
+![detailed service answer](docs/bot_detailed_service_answer.png)
+
+#### Service name filter examples
+![detailed service answer](docs/bot_host_services_status.png)
+![detailed service answer](docs/bot_service_command_example.png)
+
+#### All problematic services
+![detailed service answer](docs/bot_service_status.png)
+
+### Startup messages
+* once the bot starts it will report a short status to the configured default channel
+![bot started successfully](docs/bot_start_success.png)
+![bot had issues starting](docs/bot_start_failure.png)
+
+## Alert notification
 To get Slack notifications if something goes wrong you can check out the notification handlers in [contrib](contrib)
+
+### Alert examples
+![alert host down](docs/notification_host_down.png)
+![alert host up](docs/notification_host_up.png)
+![alert service problem](docs/notification_service_problem.png)
 
 ## License
 >You can check out the full license [here](LICENSE.txt)

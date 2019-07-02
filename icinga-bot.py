@@ -38,7 +38,7 @@ from icinga2api.client import Client as I2Client, Icinga2ApiException
 
 
 __version__ = "0.0.1"
-__version_date__ = "2019-07-01"
+__version_date__ = "2019-07-02"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 __description__ = "Icinga2 Slack bot"
 __license__ = "MIT"
@@ -531,7 +531,7 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
             # all additional names are being ignored
             # example: testserver ntp
             #   hostname: testserver, service: ntp
-            #   hostname: ntp, service testserver
+            #   hostname: ntp, service: testserver
             else:
                 i2_filters += '( match("*%s*", host.name) && match("*%s*", service.name) )' % \
                               ( filter_names[0], filter_names[1])
@@ -905,7 +905,7 @@ def run_icinga_status_query(status_type = None, slack_message = None):
                     host_name = object.get("host_name")
                     service_name = object.get("name")
                     states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
-                    colors = enum("good", "warning", "danger", "lila")
+                    colors = enum("good", "warning", "danger", "#E066FF")
                 else:
                     host_name = object.get("name")
                     service_name = None
