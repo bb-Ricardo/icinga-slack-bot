@@ -311,6 +311,8 @@ def parse_own_config(config_file):
         config_dict["icinga.timeout"] = config_handler.get(this_section, "timeout",
                                                            fallback=str(default_connection_timeout))
         logging.debug("Config: %s = %s" % ("icinga.timeout", config_dict["icinga.timeout"]))
+        config_dict["icinga.filter"] = config_handler.get(this_section, "filter", fallback="")
+        logging.debug("Config: %s = %s" % ("icinga.filter", config_dict["icinga.filter"]))
 
     for key, value in config_dict.items():
         if value is "":
@@ -318,7 +320,8 @@ def parse_own_config(config_file):
             if key in [ "icinga.username", "icinga.password" ] and config_dict["icinga.certificate"] != "":
                 continue
             # these vars can be empty
-            if key in [ "icinga.key", "icinga.certificate", "icinga.web2_url", "icinga.ca_certificate" ]:
+            if key in [ "icinga.key", "icinga.certificate", "icinga.web2_url", "icinga.ca_certificate",
+                        "icinga.filter" ]:
                 continue
             logging.error("Config: option '%s' undefined or empty!" % key)
             config_error = True
@@ -531,10 +534,16 @@ def get_i2_object(type="Host", filter_states=None, filter_names=None):
             #   hostname: testserver, service: ntp
             #   hostname: ntp, service: testserver
             else:
-                i2_filters += '( match("*%s*", host.name) && match("*%s*", service.name) )' % \
+                i2_filters += '( ( match("*%s*", host.name) && match("*%s*", service.name) )' % \
                               ( filter_names[0], filter_names[1])
-                i2_filters += ' || ( match("*%s*", host.name) && match("*%s*", service.name) )' % \
+                i2_filters += ' || ( match("*%s*", host.name) && match("*%s*", service.name) ) )' % \
                               ( filter_names[1], filter_names[0])
+
+    if config["icinga.filter"] != "":
+        if i2_filters:
+            i2_filters = "(%s) && %s" % (i2_filters, config["icinga.filter"])
+        else:
+            i2_filters = "%s" % config["icinga.filter"]
 
     logging.debug("Used filter for Icinga2 query: %s" % i2_filters)
 

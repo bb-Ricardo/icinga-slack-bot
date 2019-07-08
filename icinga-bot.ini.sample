@@ -17,4 +17,8 @@ web2_url = https://127.0.0.1/icingaweb2
 ;ca_certificate =
 ;timeout = 5
 
+; define a default filter to limit the returned results
+; this filter will be added to all object requests
+;filter = "linux-servers" in host.groups
+
 ; EOF
