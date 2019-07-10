@@ -313,6 +313,9 @@ def parse_own_config(config_file):
         logging.debug("Config: %s = %s" % ("icinga.timeout", config_dict["icinga.timeout"]))
         config_dict["icinga.filter"] = config_handler.get(this_section, "filter", fallback="")
         logging.debug("Config: %s = %s" % ("icinga.filter", config_dict["icinga.filter"]))
+        config_dict["icinga.max_returned_results"] = \
+            config_handler.get(this_section, "max_returned_results", fallback="")
+        logging.debug("Config: %s = %s" % ("icinga.max_returned_results", config_dict["icinga.max_returned_results"]))
 
     for key, value in config_dict.items():
         if value is "":
@@ -321,7 +324,7 @@ def parse_own_config(config_file):
                 continue
             # these vars can be empty
             if key in [ "icinga.key", "icinga.certificate", "icinga.web2_url", "icinga.ca_certificate",
-                        "icinga.filter" ]:
+                        "icinga.filter", "icinga.max_returned_results" ]:
                 continue
             logging.error("Config: option '%s' undefined or empty!" % key)
             config_error = True
@@ -756,6 +759,7 @@ def format_response(type="Host", result_objects = list()):
     current_host = None
     service_list = list()
     response_objects = list()
+    num_results = 0
 
     if len(result_objects) != 0:
 
@@ -809,6 +813,20 @@ def format_response(type="Host", result_objects = list()):
                 )
 
                 service_list.append(service_text)
+
+            num_results += 1
+
+            if config["icinga.max_returned_results"] != "":
+                if num_results >= int(config["icinga.max_returned_results"]):
+                    text = "*%s* (%d service%s)" % \
+                           (get_web2_slack_url(current_host), len(service_list), plural(len(service_list)))
+
+                    response_objects.append(text)
+                    response_objects.extend(service_list)
+                    response_objects.append(":end: *reached maximum number (%s) of allowed results*" %
+                                            config["icinga.max_returned_results"])
+                    response_objects.append("\t\t*please narrow down your search pattern*")
+                    break
 
     # fill blocks with formatted response
     block_text = ""

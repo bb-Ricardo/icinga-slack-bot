@@ -21,4 +21,8 @@ web2_url = https://127.0.0.1/icingaweb2
 ; this filter will be added to all object requests
 ;filter = "linux-servers" in host.groups
 
+; define a limit of maximum returned results
+; helpful in big environments
+;max_returned_results = 100
+
 ; EOF
