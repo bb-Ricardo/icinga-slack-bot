@@ -818,14 +818,17 @@ def format_response(type="Host", result_objects = list()):
 
             if config["icinga.max_returned_results"] != "":
                 if num_results >= int(config["icinga.max_returned_results"]):
-                    text = "*%s* (%d service%s)" % \
+                    if type is "Service":
+                        text = "*%s* (%d service%s)" % \
                            (get_web2_slack_url(current_host), len(service_list), plural(len(service_list)))
 
-                    response_objects.append(text)
-                    response_objects.extend(service_list)
+                        response_objects.append(text)
+                        response_objects.extend(service_list)
+
                     response_objects.append(":end: *reached maximum number (%s) of allowed results*" %
                                             config["icinga.max_returned_results"])
                     response_objects.append("\t\t*please narrow down your search pattern*")
+
                     break
 
     # fill blocks with formatted response
