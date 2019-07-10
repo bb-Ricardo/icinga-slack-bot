@@ -605,9 +605,6 @@ def get_i2_filter(type="Host", slack_message=""):
     filter_options = list()
     filter_states = list()
 
-    host_states = enum("UP", "DOWN", "UNREACHABLE")
-    service_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
-
     logging.debug("Start compiling Icinga2 filters for received message: %s" % slack_message)
 
     if slack_message.strip() is not "":
@@ -755,7 +752,7 @@ def format_response(type="Host", result_objects = list()):
 
         # set state emoji
         if type is "Host":
-            object_emojies = enum(":white_check_mark:", ":red_circle:", ":red_circle:")
+            object_emojies = enum(":white_check_mark:", ":red_circle:", ":octagonal_sign:")
         else:
             object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
 
@@ -773,7 +770,7 @@ def format_response(type="Host", result_objects = list()):
                     break
 
                 text = "{state_emoji} {url}: {output}".format(
-                    state_emoji=object_emojies.reverse[object.get("state")],
+                    state_emoji=object_emojies.reverse[int(object.get("state"))],
                     url=get_web2_slack_url(object.get("name")), output=last_check.get("output")
                 )
 
@@ -902,13 +899,13 @@ def run_icinga_status_query(status_type = None, slack_message = None):
                 if object.get("host_name"):
                     host_name = object.get("host_name")
                     service_name = object.get("name")
-                    states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
+                    states = service_states
                     colors = enum("good", "warning", "danger", "#E066FF")
                 else:
                     host_name = object.get("name")
                     service_name = None
-                    states = enum("UP", "DOWN", "UNREACHABLE")
-                    colors = enum("good", "danger", "danger")
+                    states = host_states
+                    colors = enum("good", "danger", "#BC1414")
 
                 host_url = get_web2_slack_url(host_name)
                 service_url = get_web2_slack_url(host_name,service_name)
@@ -939,7 +936,7 @@ def run_icinga_status_query(status_type = None, slack_message = None):
 
                 response.add_attachment(
                     {
-                        "color": colors.reverse[object.get("state")],
+                        "color": colors.reverse[int(object.get("state"))],
                         "text": text,
                         "fields": fields
                     }
@@ -977,6 +974,145 @@ def run_icinga_status_query(status_type = None, slack_message = None):
 
     return response
 
+def get_icinga_status_overview():
+    """return overview of current host and service status
+
+    Returns
+    -------
+    SlackResponse: with response for Slack command
+    """
+
+    response = SlackResponse(text="Status Overview")
+
+    # get icinga host objects
+    i2_host_response = get_i2_object("Host")
+
+    if i2_host_response.error:
+        response.text = "Icinga request error"
+        response.add_block("*%s*" % response.text)
+        response.add_attachment(
+            {
+                "fallback": response.text,
+                "text": "Error: %s" % i2_host_response.error,
+                "color": "danger"
+            }
+        )
+        return response
+
+    # get icinga service objects
+    i2_service_response = get_i2_object("Service")
+
+    if i2_service_response.error:
+        response.text = "Icinga request error"
+        response.add_block("*%s*" % response.text)
+        response.add_attachment(
+            {
+                "fallback": response.text,
+                "text": "Error: %s" % i2_service_response.error,
+                "color": "danger"
+            }
+        )
+        return response
+
+    host_count = {
+        "UP": 0,
+        "DOWN": 0,
+        "UNREACHABLE": 0,
+        "UNHANDLED": 0,
+        "ACKNOWLEDGED": 0,
+        "IN DOWNTIME": 0
+    }
+
+    service_count = {
+        "OK": 0,
+        "WARNING": 0,
+        "CRITICAL": 0,
+        "UNKNOWN": 0,
+        "UNHANDLED": 0,
+        "ACKNOWLEDGED": 0,
+        "IN DOWNTIME": 0
+    }
+
+    # count all host objects
+    for host in i2_host_response.response:
+        host_count[host_states.reverse[int(host.get("state"))]] += 1
+
+        if host.get("acknowledgement") > 0:
+            host_count["ACKNOWLEDGED"] += 1
+
+        if host.get("downtime_depth") > 0:
+            host_count["IN DOWNTIME"] += 1
+
+        if host.get("state") > 0 and \
+           host.get("acknowledgement") == 0 and \
+           host.get("downtime_depth") == 0:
+            host_count["UNHANDLED"] += 1
+
+    # count all service objects
+    for service in i2_service_response.response:
+        service_count[service_states.reverse[int(service.get("state"))]] += 1
+
+        if service.get("acknowledgement") > 0:
+            service_count["ACKNOWLEDGED"] += 1
+
+        if service.get("downtime_depth") > 0:
+            service_count["IN DOWNTIME"] += 1
+
+        if service.get("state") > 0 and \
+           service.get("acknowledgement") == 0 and \
+           service.get("downtime_depth") == 0:
+            service_count["UNHANDLED"] += 1
+
+    # add block text with number of unhandled problems
+    problems_unhandled = host_count["UNHANDLED"] + service_count["UNHANDLED"]
+    response.add_block("*Found %s unhandled problem%s*" %
+                       ("no" if problems_unhandled == 0 else
+                       str(problems_unhandled), plural(problems_unhandled) ))
+
+    # compile answer for host objects
+    host_fields = list()
+    for title, value in host_count.items():
+        if title == "UNHANDLED": continue
+        host_fields.append({
+            "title": title,
+            "value": value,
+            "short": True
+        })
+
+    response.add_attachment(
+        {
+            "fallback": "Host status",
+            "text": "*%s unhandled host%s*" %
+                    ("No" if host_count["UNHANDLED"] == 0 else
+                        str(host_count["UNHANDLED"]), plural(host_count["UNHANDLED"])),
+            "color": "%s" % "good" if host_count["UNHANDLED"] == 0 else "danger",
+            "fields": host_fields
+        }
+    )
+
+    # compile answer for service objects
+    service_fields = list()
+    for title, value in service_count.items():
+        if title == "UNHANDLED": continue
+        service_fields.append({
+            "title": title,
+            "value": value,
+            "short": True
+        })
+
+    response.add_attachment(
+        {
+            "fallback": "Service status",
+            "text": "*%s unhandled service%s*" %
+                    ("No" if service_count["UNHANDLED"] == 0 else
+                        str(service_count["UNHANDLED"]), plural(service_count["UNHANDLED"])),
+            "color": "%s" % "good" if service_count["UNHANDLED"] == 0 else "danger",
+            "fields": service_fields
+        }
+    )
+
+    return response
+
 def slack_command_help():
     """
     Return a short command description
@@ -990,7 +1126,8 @@ def slack_command_help():
         "help":                 "this help",
         "ping":                 "bot will answer with `pong`",
         "service status (ss)":  "display service status of all services in non OK state",
-        "host status (hs)":     "display host status of all hosts in non UP state"
+        "host status (hs)":     "display host status of all hosts in non UP state",
+        "status overview (so)": "display a summary of current host and service status numbers"
     }
 
     fields = list()
@@ -1037,6 +1174,7 @@ async def handle_command(slack_message):
         help: print a help description
         host status (hs): request a host status
         service status (ss): request a service status
+        status overview (so): display status summary
 
     Returns "default_response_text" var if parsing failed
 
@@ -1051,7 +1189,6 @@ async def handle_command(slack_message):
     """
 
     response = None
-    status_type = None
 
     default_response_text = "I didn't understand the command. Please use `help` for more details."
 
@@ -1087,6 +1224,8 @@ async def handle_command(slack_message):
         else:
             slack_message = slack_message[len("service status"):].strip()
 
+        response = run_icinga_status_query(status_type, slack_message)
+
     elif slack_message.startswith("host status") or slack_message.startswith("hs"):
 
         logging.debug("Found 'host status' command")
@@ -1098,9 +1237,13 @@ async def handle_command(slack_message):
         else:
             slack_message = slack_message[len("host status"):].strip()
 
-    # query icinga
-    if status_type:
         response = run_icinga_status_query(status_type, slack_message)
+
+    elif slack_message.startswith("status overview") or slack_message.startswith("so"):
+
+        logging.debug("Found 'status overview' command")
+
+        response = get_icinga_status_overview()
 
     if not response:
 
@@ -1263,6 +1406,10 @@ if __name__ == "__main__":
     setup_logging(args.log_level)
 
     logging.info("Starting " + __description__)
+
+    # define states which use the enum function
+    host_states = enum("UP", "DOWN", "UNREACHABLE")
+    service_states = enum("OK", "WARNING", "CRITICAL", "UNKNOWN")
 
     ################
     #   parse config file(s)

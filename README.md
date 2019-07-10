@@ -113,6 +113,8 @@ Following commands are currently implemented:
 >request a host status (or short "hs") of any or all hosts
 * service status (ss)
 >request a service status (or short "ss") of any or all services
+* status overview (so)
+>display a summary of current host and service status numbers
 
 ### Command status filter
 Following command filters are implemented
@@ -173,6 +175,9 @@ Also just parts of host and service names can be used to search for objects
 
 #### All problematic services
 ![detailed service answer](docs/bot_service_status.png)
+
+#### Status overview
+![status overview answer](docs/bot_status_overview.png)
 
 ### Startup messages
 * once the bot starts it will report a short status to the configured default channel
