@@ -41,16 +41,33 @@ Most likely the start will fail as the config is not fully set up.
 >**It is recommended to create your own config**
 >```cp icinga-bot.ini.sample icinga-bot.ini```
 
-Change config options according your environment. After you entered the Slack tokens you should be able to start the bot.
+Change config options according your environment.
+After you entered the Slack tokens you should be able to start the bot.
 
 ### Run as a service
-* a [systemd unit file](icinga-slack-bot.service) is included but needs to be adopted if the installation path is changed
+* a [systemd unit file](icinga-slack-bot.service) is included
+but needs to be changed if the installation path is different
 
 ```
 sudo cp icinga-slack-bot.service /etc/systemd/system
 sudo systemctl daemon-reload
 sudo systemctl start icinga-slack-bot
 sudo systemctl enable icinga-slack-bot
+```
+
+### Run with Docker
+```
+git clone https://github.com/bb-Ricardo/icinga-slack-bot.git
+cd icinga-slack-bot
+docker build -t icinga-bot .
+```
+
+Copy the config from the [example](icinga-bot.ini.sample) to ```ìcinga-bot.ini``` and edit
+the settings.
+
+Now you should be able to run the image with following command
+```
+docker run -d -v /PATH/TO/ìcinga-bot.ini:/app/icinga-bot.ini --name bot icinga-bot
 ```
 
 ### Icinga API permissions
