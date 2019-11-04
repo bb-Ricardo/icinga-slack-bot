@@ -33,6 +33,7 @@ from datetime import datetime
 import certifi
 import slack
 from icinga2api.client import Client as I2Client, Icinga2ApiException
+from ctparse import ctparse
 
 
 __version__ = "0.1.0"
@@ -61,6 +62,8 @@ github_logo_url = "https://github.githubassets.com/images/modules/logos_page/Git
 
 max_messages_to_display_detailed_status = 4
 
+user_data_cache_timeout = 1800
+
 #################
 #
 #   internal vars
@@ -73,10 +76,11 @@ valid_log_levels = [ "DEBUG", "INFO", "WARNING", "ERROR"]
 
 args = None
 config = None
+conversations = dict()
+user_info = dict()
 
 plural = lambda x : "s" if x != 1 else ""
 yes_no = lambda x: "Yes" if x > 0 else "No"
-
 
 #################
 #
@@ -184,6 +188,26 @@ class SlackAttachment:
     def __init__(self):
         pass
 
+class SlackConversation:
+
+    command = None
+    filter = None
+    filter_result = None
+    object_type = None
+    start_date = None
+    start_date_parsing_failed = None
+    end_date = None
+    end_date_parsing_failed = None
+    description = None
+    author = None
+    user_id = None
+    confirmed = False
+    confirmation_sent = False
+    canceled = False
+
+    def __init__(self,
+                 user_id=None):
+        self.user_id = user_id
 
 class RequestResponse:
     """
@@ -1157,7 +1181,10 @@ def slack_command_help():
         "ping":                 "bot will answer with `pong`",
         "service status (ss)":  "display service status of all services in non OK state",
         "host status (hs)":     "display host status of all hosts in non UP state",
-        "status overview (so)": "display a summary of current host and service status numbers"
+        "status overview (so)": "display a summary of current host and service status numbers",
+        "acknowledge (ack)":    "acknowledge problematic hosts or services",
+        "downtime (dt)":        "set a downtime for hosts/services",
+        "reset":                "abort current action (ack/dt)"
     }
 
     fields = list()
@@ -1196,7 +1223,565 @@ def ts_to_date(ts, format = "%Y-%m-%d %H:%M:%S"):
     """
     return datetime.fromtimestamp(ts).strftime(format)
 
-async def handle_command(slack_message):
+def parse_relative_date(data_to_parse = None):
+    """
+    Return a ctparse.Time dict and a datetime object for a string of relative date and/or time to parse.
+
+    Parameters
+    ----------
+    data_to_parse : string
+        string with relative time information which should be parsed into absolute datetime object
+
+    Returns
+    -------
+    dict: date/time data + datetime object
+
+        example_output = {
+            'mstart': 0,
+            'mend': 8,
+            'year': 2019,
+            'month': 11,
+            'day': 5,
+            'hour': 17,
+            'minute': 33,
+            'DOW': None,
+            'POD': None,
+            'dt': datetime.datetime(2019, 11, 5, 17, 33)
+        }
+    """
+
+    string_to_parse = None
+    if isinstance(data_to_parse, list):
+        string_to_parse = " ".join(data_to_parse)
+
+    elif isinstance(data_to_parse, str):
+        string_to_parse = data_to_parse
+
+    if string_to_parse is None:
+        logging.warning("Trying to parse date but submitted data is not a string or a list.")
+        return None
+
+    logging.debug("%s START ctparse %s" % ("*" * 10, "*" * 50))
+    parsed_date = ctparse(string_to_parse)
+    logging.debug("%s END ctparse %s" % ("*" * 10, "*" * 52))
+
+    if parsed_date is None or parsed_date.resolution is None:
+        logging.debug("Unable to parse a date from string: %s" % string_to_parse)
+        return None
+
+    data_parts = parsed_date.resolution
+
+    # just do some own additional parsing
+    time_string = string_to_parse[data_parts.mstart:data_parts.mend]
+
+    if any(keyword in time_string for keyword in [ "lunch", "noon", "mittag"]):
+        data_parts.hour = 12
+
+    if "morning" in time_string:
+        data_parts.hour = 9
+
+    if "afternoon" in time_string:
+        data_parts.hour = 15
+
+    if "evening" in time_string:
+        data_parts.hour = 18
+
+    # unable to determine time of the day
+    # use current time
+    if data_parts.hour is None:
+        now = datetime.today()
+        data_parts.hour = now.hour
+        data_parts.minute = now.minute
+
+    # if minute returned None set to full hour
+    if data_parts.minute is None:
+        data_parts.minute = 0
+
+    dt = None
+    try:
+        dt = datetime(year=data_parts.year,
+                      month=data_parts.month,
+                      day=data_parts.day,
+                      hour=data_parts.hour,
+                      minute=data_parts.minute)
+    except TypeError:
+        pass
+
+    if data_parts:
+        logging.debug("Parsed date from string (%s): %s" % \
+                      (string_to_parse[data_parts.mstart:data_parts.mend], parsed_date))
+    else:
+        logging.debug("Unable to parse a date from string: %s" % string_to_parse)
+
+    return_data = data_parts.__dict__
+    return_data["dt"] = dt
+
+    return return_data
+
+def chat_with_user(chat_message = None, chat_user_id = None):
+    """
+    Have a conversation with the user about the action the user wants to perform
+
+    Parameters
+    ----------
+    chat_message : string
+        slack message to parse
+    chat_user_id : string
+        slack user id
+
+    Returns
+    -------
+    SlackResponse: questions about the action, confirmations or errors
+    """
+
+    global conversations
+
+    if chat_message is None or chat_user_id is None:
+
+        response = SlackResponse()
+
+        response.text = "Slack internal error"
+        response.add_block("*%s*" % response.text)
+        response.add_attachment(
+            {
+                "fallback": response.text,
+                "text": "Error: parameters missing in 'chat_with_user' function",
+                "color": "danger"
+            }
+        )
+        return response
+
+    # New conversation
+    if conversations.get(chat_user_id) is None:
+        conversations[chat_user_id] = SlackConversation(chat_user_id)
+
+    this_conversation = conversations.get(chat_user_id)
+
+    # split chat_message into an array
+    cma = chat_message.split(' ')
+
+    # check or command
+    if this_conversation.command is None:
+        logging.debug("Command not set, parsing: %s" % " ".join(cma))
+        if cma[0].startswith("ack"):
+            this_conversation.command = "ACK"
+        elif cma[0].startswith("dt") or cma[0].startswith("downtime"):
+            this_conversation.command = "DOWNTIME"
+        else:
+            return None
+
+        logging.debug("Command parsed: %s" % this_conversation.command)
+
+        del cma[0]
+
+    # check for filter
+    if this_conversation.filter is None:
+
+        if len(cma) != 0:
+            # we got a filter
+            logging.debug("Filter not set, parsing: %s" % " ".join(cma))
+
+            # get first word after command as filter
+            filter_list = list()
+            filter_list.append(cma.pop(0))
+
+            # use second word as well if present
+            if len(cma) == 1 or (len(cma) > 1 and cma[0] not in [ "from", "until" ]):
+                filter_list.append(cma.pop(0))
+
+            logging.debug("Filter parsed: %s" % filter_list)
+
+            this_conversation.filter = filter_list
+            conversations[chat_user_id] = this_conversation
+
+    # try to find objects based on filter
+    if this_conversation.filter and this_conversation.filter_result is None:
+
+        logging.debug("Filter result list empty. Query Icinga for objects.")
+        host_filter = list()
+        service_filter = list()
+        if this_conversation.command == "ACK":
+            host_filter = ["host.state != 0"]
+            service_filter = ["service.state != 0"]
+
+        # query hosts and services
+        if len(this_conversation.filter) == 1:
+
+            object_type = "Host"
+            i2_result = get_i2_object(object_type, host_filter, this_conversation.filter)
+
+            if i2_result.error is None and len(i2_result.response) == 0:
+                object_type = "Service"
+                i2_result = get_i2_object(object_type, service_filter, this_conversation.filter)
+
+        # just query services
+        else:
+            object_type = "Service"
+            i2_result = get_i2_object(object_type, service_filter, this_conversation.filter)
+
+        # encountered Icinga request issue
+        if i2_result.error:
+            logging.debug("No icinga objects found for filter: %s" % this_conversation.filter)
+            error_response = SlackResponse(text="Icinga Error")
+            error_response.text = "Icinga request error while trying to find matching hosts/services"
+            error_response.add_block("*%s*" % error_response.text)
+            error_response.add_attachment(
+                {
+                    "fallback": error_response.text,
+                    "text": "Error: %s" % i2_result.error,
+                    "color": "danger"
+                }
+            )
+            return error_response
+
+        # we can set a downtime for all objects no matter their state
+        if this_conversation.command == "DOWNTIME" and len(i2_result.response) > 0:
+
+            this_conversation.filter_result = i2_result.response
+        else:
+
+            # only objects which are not acknowledged can be acknowledged
+            ack_filter_result = list()
+            for result in i2_result.response:
+                # only add results which are not acknowledged
+                if result.get("acknowledgement") == 0:
+                    ack_filter_result.append(result)
+
+            if len(ack_filter_result) > 0:
+                this_conversation.filter_result = ack_filter_result
+
+        # save current conversation state if filter returned any objects
+        if this_conversation.filter_result and len(this_conversation.filter_result) > 0:
+
+            logging.debug("Found %d objects for command %s" %
+                          (len(this_conversation.filter_result), this_conversation.command))
+
+            this_conversation.object_type = object_type
+            conversations[chat_user_id] = this_conversation
+
+    # parse start time information for downtime
+    if this_conversation.command == "DOWNTIME" and this_conversation.start_date is None:
+
+        if len(cma) != 0:
+
+            logging.debug("Start date not set, parsing: %s" % " ".join(cma))
+
+            if "from" in cma:
+                cma = cma[cma.index("from") + 1:]
+
+            if "until" in cma:
+                string_parse = " ".join(cma[0:cma.index("until")])
+                cma = cma[cma.index("until"):]
+            else:
+                string_parse = " ".join(cma)
+
+            start_date_data = parse_relative_date(string_parse)
+
+            if start_date_data:
+
+                logging.debug("Start date successfully parsed")
+
+                # get timestamp from returned datetime object
+                if start_date_data.get("dt"):
+                    this_conversation.start_date = start_date_data.get("dt").timestamp()
+
+                if cma[0] != "until":
+                    cma = string_parse[start_date_data.get("mend"):].strip().split(" ")
+            else:
+                this_conversation.start_date_parsing_failed = string_parse
+
+            conversations[chat_user_id] = this_conversation
+
+    # parse end time information
+    if this_conversation.end_date is None:
+
+        if len(cma) != 0:
+
+            logging.debug("End date not set, parsing: %s" % " ".join(cma))
+
+            if "until" in cma:
+                cma = cma[cma.index("until") + 1:]
+
+            if cma[0] in [ "never", "infinite" ]:
+                # add rest of message as description
+                this_conversation.end_date = -1
+                del cma[0]
+
+            else:
+                string_parse = " ".join(cma)
+                end_date_data = parse_relative_date(string_parse)
+
+                if end_date_data:
+
+                    # get timestamp from returned datetime object
+                    if end_date_data.get("dt"):
+                        this_conversation.end_date = end_date_data.get("dt").timestamp()
+
+                    # add rest of string back to cma
+                    cma = string_parse[end_date_data.get("mend"):].strip().split(" ")
+                else:
+                    this_conversation.end_date_parsing_failed = string_parse
+
+            conversations[chat_user_id] = this_conversation
+
+    if this_conversation.description is None:
+
+        if len(cma) != 0 and len("".join(cma).strip()) != 0:
+            logging.debug("Description not set, parsing: %s" % " ".join(cma))
+
+            this_conversation.description = " ".join(cma)
+            cma = list()
+
+        conversations[chat_user_id] = this_conversation
+
+    # ask for missing info
+    if this_conversation.filter is None:
+
+        logging.debug("Filter not set, asking for it")
+
+        if this_conversation.command == "ACK":
+            response_text = "What do you want acknowledge?"
+        else:
+            response_text = "What do you want to set a downtime for?"
+
+        conversations[chat_user_id] = this_conversation
+        return SlackResponse(text=response_text)
+
+    # no objects found based on filter
+    if this_conversation.filter_result is None:
+        problematic = ""
+
+        logging.debug("Icinga2 object request returned empty, asking for a different filter")
+
+        if this_conversation.command == "ACK":
+            problematic = " problematic"
+
+        response_text = "Sorry, I was not able to find any%s hosts or services for your search '%s'. Try again." \
+                            % (problematic, " ".join(this_conversation.filter))
+
+        this_conversation.filter = None
+        conversations[chat_user_id] = this_conversation
+        return SlackResponse(text=response_text)
+
+    # ask for not parsed start time
+    if this_conversation.command == "DOWNTIME" and this_conversation.start_date is None:
+
+        if not this_conversation.start_date_parsing_failed:
+            logging.debug("Start date not set, asking for it")
+            response_text = "When should the downtime start?"
+        else:
+            logging.debug("Failed to parse start date, asking again for it")
+            response_text = "Sorry, I was not able to understand the start date '%s'. Try again please." \
+                            % this_conversation.start_date_parsing_failed
+
+        conversations[chat_user_id] = this_conversation
+        return SlackResponse(text=response_text)
+
+    # ask for not parsed end date
+    if this_conversation.end_date is None:
+
+        if not this_conversation.end_date_parsing_failed:
+
+            logging.debug("End date not set, asking for it")
+
+            if this_conversation.command == "ACK":
+                response_text = "When should the acknowledgement expire? Or never?"
+            else:
+                response_text = "When should the downtime end?"
+        else:
+            logging.debug("Failed to parse end date, asking again for it")
+            response_text = "Sorry, I was not able to understand the end date '%s'. Try again please." \
+                            % this_conversation.end_date_parsing_failed
+
+        conversations[chat_user_id] = this_conversation
+        return SlackResponse(text=response_text)
+
+    if this_conversation.end_date and this_conversation.end_date - 60 < datetime.now().timestamp():
+
+        logging.debug("End date is already in the past. Ask user again for end date")
+
+        response_text = "Sorry, end date '%s' lies (almost) in the past. Please define a valid end/expire date." % \
+                        ts_to_date(this_conversation.end_date)
+
+        this_conversation.end_date = None
+        conversations[chat_user_id] = this_conversation
+
+        return SlackResponse(text=response_text)
+
+    if this_conversation.command == "DOWNTIME" and this_conversation.start_date > this_conversation.end_date:
+
+        logging.debug("Start date is after end date for downtime. Ask user again for start date.")
+
+        response_text = "Sorry, start date '%s' can't be after and date '%s'. When should the downtime start?" % \
+                        (ts_to_date(this_conversation.start_date), ts_to_date(this_conversation.end_date))
+
+        this_conversation.start_date = None
+        conversations[chat_user_id] = this_conversation
+
+        return SlackResponse(text=response_text)
+
+    if this_conversation.description is None:
+
+        logging.debug("Description not set, asking for it")
+
+        conversations[chat_user_id] = this_conversation
+        return SlackResponse(text="Please add a comment.")
+
+    # now we seem to have all information and ask user if that's what the user wants
+    if not this_conversation.confirmed:
+
+        if this_conversation.confirmation_sent:
+            if cma[0].startswith("y") or cma[0].startswith("Y"):
+                this_conversation.confirmed = True
+            elif cma[0].startswith("n") or cma[0].startswith("N"):
+                this_conversation.canceled = True
+            else:
+                this_conversation.confirmation_sent = False
+
+        if not this_conversation.confirmation_sent:
+
+            # get object type
+            if this_conversation.command == "DOWNTIME":
+                command = "Downtime"
+            else:
+                command = "Acknowledgement"
+
+            confirmation = {
+                "Command" : command,
+                "Type" : this_conversation.object_type
+            }
+            if this_conversation.command == "DOWNTIME":
+                confirmation["Start"] = ts_to_date(this_conversation.start_date)
+                confirmation["End"] = ts_to_date(this_conversation.end_date)
+
+            else:
+                confirmation["Expire"] = "Never" if this_conversation.end_date == -1 else ts_to_date(this_conversation.end_date)
+
+
+            confirmation["Comment"] = this_conversation.description
+            confirmation["Objects"] = ""
+
+            response = SlackResponse(text="Confirm your action")
+
+            confirmation_fields = list()
+            for title, value in confirmation.items():
+                confirmation_fields.append(">*%s*: %s" % (title, value))
+
+            for i2_object in this_conversation.filter_result[0:10]:
+                if this_conversation.object_type == "Host":
+                    name = i2_object.get("name")
+                else:
+                    name = '%s - %s' % (i2_object.get("host_name"), i2_object.get("name"))
+
+                confirmation_fields.append(u">\t• %s" % name)
+
+            if len(this_conversation.filter_result) > 10:
+                confirmation_fields.append(">\t... and %d more" % (len(this_conversation.filter_result) - 10 ))
+            response.add_block("\n".join(confirmation_fields))
+            response.add_block("Do you want to confirm this action?:")
+
+            this_conversation.confirmation_sent = True
+            conversations[chat_user_id] = this_conversation
+
+            return response
+
+    if this_conversation.canceled:
+
+        del conversations[chat_user_id]
+        return SlackResponse(text="Ok, action has been canceled!")
+
+    if this_conversation.confirmed:
+
+        # delete conversation history
+        del conversations[chat_user_id]
+
+        response = RequestResponse()
+
+        i2_handle, i2_error = setup_icinga_connection()
+
+        if not i2_handle:
+            if i2_error is not None:
+                return RequestResponse(error=i2_error)
+            else:
+                return RequestResponse(error="Unknown error while setting up Icinga2 connection")
+
+        # define filters
+        filter_list = list()
+        if this_conversation.object_type == "Host":
+            for i2_object in this_conversation.filter_result:
+                filter_list.append('host.name=="%s"' % i2_object.get("name"))
+        else:
+            for i2_object in this_conversation.filter_result:
+                filter_list.append('( host.name=="%s" && service.name=="%s" )' %
+                                   ( i2_object.get("host_name"), i2_object.get("name")))
+
+        success_message = None
+        try:
+
+            if this_conversation.command == "DOWNTIME":
+
+                logging.debug("Sending Downtime to Icinga2")
+
+                success_message = "Successfully scheduled downtime!"
+
+                response.response = i2_handle.actions.schedule_downtime(
+                    object_type=this_conversation.object_type,
+                    filters='(' + ' || '.join(filter_list) + ')',
+                    author=user_info.get(chat_user_id).get("real_name"),
+                    comment=this_conversation.description,
+                    start_time = this_conversation.start_date,
+                    end_time = this_conversation.end_date,
+                    duration = this_conversation.end_date - this_conversation.start_date
+                    # ToDo:
+                    #   * patch API to support "all_services"
+                    #   OR
+                    #   * if Host downtime send another one for all services
+
+                    # all_services=True
+                )
+
+            else:
+                logging.debug("Sending Acknowledgement to Icinga2")
+
+                success_message = "Successfully acknowledged %s problem%s!" % \
+                                  ( this_conversation.object_type, plural(len(filter_list)))
+
+                # https://github.com/fmnisme/python-icinga2api/blob/master/doc/4-actions.md#-actionsacknowledge_problem
+                response.response = i2_handle.actions.acknowledge_problem(
+                    object_type=this_conversation.object_type,
+                    filters='(' + ' || '.join(filter_list) + ')',
+                    author=user_info.get(chat_user_id).get("real_name"),
+                    comment=this_conversation.description,
+                    expiry = None if this_conversation.end_date == -1 else this_conversation.end_date,
+                    sticky=True
+                )
+
+        except Exception as e:
+            response.error = str(e)
+            logging.error("Unable to query Icinga2 status: %s" % response.error)
+            pass
+
+        slack_response = SlackResponse()
+
+        if response.error:
+            slack_response.text = "Icinga request error"
+            slack_response.add_block("*%s*" % response.text)
+            slack_response.add_attachment(
+                {
+                    "fallback": slack_response.text,
+                    "text": "Error: %s" % i2_host_response.error,
+                    "color": "danger"
+                }
+            )
+            return slack_response
+
+        slack_response.text = success_message
+
+        return slack_response
+
+    return None
+
+async def handle_command(slack_message, slack_user_id = None):
     """parse a Slack message and try to interpret commands
 
     Currently implemented commands:
@@ -1212,6 +1797,9 @@ async def handle_command(slack_message):
     ----------
     slack_message : str
         Slack message to parse
+
+    slack_user_id : str
+        Slack user id who sent the message
 
     Returns
     -------
@@ -1229,7 +1817,19 @@ async def handle_command(slack_message):
     # lowercase makes parsing easier
     slack_message = slack_message.lower()
 
-    if slack_message.startswith("ping"):
+    if slack_message == "reset" and conversations.get(slack_user_id) is not None:
+        del conversations[slack_user_id]
+        return SlackResponse(text="Your conversation has been reset.")
+
+    if conversations.get(slack_user_id) or \
+        slack_message.startswith("ack") or \
+        slack_message.startswith("dt") or \
+        slack_message.startswith("downtime"):
+
+        # try to chat with user
+        response = chat_with_user(slack_message, slack_user_id)
+
+    elif slack_message.startswith("ping"):
 
         logging.debug("Found 'ping' command")
 
@@ -1275,6 +1875,7 @@ async def handle_command(slack_message):
 
         response = get_icinga_status_overview()
 
+    # we didn't understand the message
     if not response:
 
         response = SlackResponse(
@@ -1311,8 +1912,24 @@ async def message(**payload):
 
         logging.debug("Received new Slack message: %s" % data.get("text"))
 
+        # check if user data cache expired
+        if user_info.get(data.get("user")) and \
+            user_info[data.get("user")]["ts_created"] + user_data_cache_timeout < datetime.now().timestamp():
+
+            logging.debug("User data cache for user '%s' expired." % data.get("user"))
+            del user_info[data.get("user")]
+
+        # fetch user data
+        if user_info.get(data.get("user")) is None:
+            logging.debug("No cached user data found. Fetching from Slack.")
+            slack_response = await web_client.users_info(user=data.get("user"))
+            if slack_response.get("user"):
+                logging.debug("Successfully fetched user data.")
+                user_info[data.get("user")] = slack_response.get("user")
+                user_info[data.get("user")]["ts_created"] = datetime.now().timestamp()
+
         # parse command
-        response = await handle_command(data.get("text"))
+        response = await handle_command(data.get("text"), data.get("user"))
 
         slack_api_response = post_slack_message(web_client, channel_id, response)
 
@@ -1498,7 +2115,6 @@ if __name__ == "__main__":
     if post_response.error:
         do_error_exit("Error while posting startup message to slack (%s): %s" %
                       (config["slack.default_channel"], post_response.error))
-
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

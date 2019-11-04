@@ -11,6 +11,7 @@ used to narrow down the returned status list.
 * python-slackclient >= 2.0.0
 * certifi >= 2018
 * icinga2api >= 0.6.0
+* ctparse >= 0.0.38
 * Icinga2 instance with API feature enabled
 
 ## Installation
@@ -83,7 +84,7 @@ This would be an Icinga Slack bot API user
 object ApiUser "icinga-bot" {
   password = "icinga"
 
-  permissions = [ "objects/query/Host", "objects/query/Service", "status/query" ]
+  permissions = [ "objects/query/Host", "objects/query/Service", "status/query", "actions/*" ]
 }
 ```
 
@@ -132,6 +133,12 @@ Following commands are currently implemented:
 >request a service status (or short "ss") of any or all services
 * status overview (so)
 >display a summary of current host and service status numbers
+* acknowledge (ack)
+>acknowledge problematic hosts or services
+* downtime (dt)
+>set a downtime for hosts/services
+* reset
+>abort current action (ack/dt)
 
 ### Command status filter
 Following command filters are implemented
@@ -174,6 +181,8 @@ Also just parts of host and service names can be used to search for objects
 * ```ss warn crit ntp``` will display all services which match "ntp" and are in state CRITICAL or WARNING
 * ```ss``` will display all services which currently have a problem
 
+* ```ack my-server ntp until tomorrow evening Wrong ntp config, will be updated tomorrow``` will acknowledge a problematic service ntp on my-server until 6pm the following day
+
 ***Important:***
 * The [detailed](#all-problematic-services) view will only be used if there are **1 to 4** status results
 
@@ -195,6 +204,9 @@ Also just parts of host and service names can be used to search for objects
 
 #### Status overview
 ![status overview answer](docs/bot_status_overview.png)
+
+#### Acknowledge service problem
+![ack_service_problem](docs/bot_ack_service.png)
 
 ### Startup messages
 * once the bot starts it will report a short status to the configured default channel
