@@ -8,7 +8,7 @@ import logging
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from datetime import datetime
 
-import ctparse
+from ctparse import ctparse
 
 
 # define valid log levels
