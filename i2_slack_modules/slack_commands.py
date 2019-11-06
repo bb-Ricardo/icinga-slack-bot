@@ -777,13 +777,8 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                     comment=this_conversation.description,
                     start_time=this_conversation.start_date,
                     end_time=this_conversation.end_date,
-                    duration=this_conversation.end_date - this_conversation.start_date
-                    # ToDo:
-                    #   * patch API to support "all_services"
-                    #   OR
-                    #   * if Host downtime send another one for all services
-
-                    # all_services=True
+                    duration=this_conversation.end_date - this_conversation.start_date,
+                    all_services=True
                 )
 
             else:

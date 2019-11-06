@@ -6,7 +6,8 @@
 import json
 import logging
 
-from icinga2api.client import Client as I2Client, Icinga2ApiException
+from icinga2api.client import Client, Icinga2ApiException
+from icinga2api.actions import Actions
 
 from . import host_states, service_states
 
@@ -22,6 +23,54 @@ class RequestResponse:
 
         self.response = response
         self.error = error
+
+
+class MyIcinga2Actions(Actions):
+
+    def schedule_downtime(self,
+                          object_type,
+                          filters,
+                          author,
+                          comment,
+                          start_time,
+                          end_time,
+                          duration,
+                          filter_vars=None,
+                          fixed=None,
+                          trigger_name=None,
+                          all_services=None):
+
+        url = '{}/{}'.format(self.base_url_path, 'schedule-downtime')
+
+        payload = {
+            'type': object_type,
+            'filter': filters,
+            'author': author,
+            'comment': comment,
+            'start_time': start_time,
+            'end_time': end_time,
+            'duration': duration
+        }
+        if filter_vars:
+            payload['filter_vars'] = filter_vars
+        if fixed:
+            payload['fixed'] = fixed
+        if trigger_name:
+            payload['trigger_name'] = trigger_name
+        if all_services:
+            payload['all_services'] = all_services
+
+        return self._request('POST', url, payload)
+
+
+class MyIcinga2Client(Client):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        # override handle with own actions class
+        # PR: https://github.com/fmnisme/python-icinga2api/pull/14
+        self.actions = MyIcinga2Actions(self)
 
 
 def setup_icinga_connection(config):
@@ -51,17 +100,18 @@ def setup_icinga_connection(config):
         icinga_timeout = int(config["icinga.timeout"])
 
     try:
-        i2_handle = I2Client(url="https://" + config["icinga.hostname"] + ":" + config["icinga.port"],
-                             username=config["icinga.username"], password=config["icinga.password"],
-                             certificate=config["icinga.certificate"], key=config["icinga.key"],
-                             ca_certificate=config["icinga.ca_certificate"], timeout=icinga_timeout)
+        i2_handle = MyIcinga2Client(url="https://" + config["icinga.hostname"] + ":" + config["icinga.port"],
+                                    username=config["icinga.username"], password=config["icinga.password"],
+                                    certificate=config["icinga.certificate"], key=config["icinga.key"],
+                                    ca_certificate=config["icinga.ca_certificate"], timeout=icinga_timeout)
 
     except Icinga2ApiException as e:
         i2_error = str(e)
         logging.error("Unable to set up Icinga2 connection: %s" % i2_error)
         pass
 
-    logging.debug("Successfully connected to Icinga2")
+    if not i2_error:
+        logging.debug("Successfully connected to Icinga2")
 
     return i2_handle, i2_error
 
