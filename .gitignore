@@ -3,3 +3,6 @@
 
 # Except those related to git and vagrant
 !.git*
+
+# python cache
+__pycache__

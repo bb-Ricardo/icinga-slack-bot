@@ -76,7 +76,7 @@ PAYLOAD="payload="$(cat <<-END
 		"attachments" : [
 			{
 				"fallback" : "${FALLBACK_TEXT}",
-				"color": "$COLOR",
+				"color": "${COLOR}",
 				"text": "${MESSAGE_TEXT}",
 				"ts" : "${TS}"
 			}
@@ -88,5 +88,3 @@ END
 ${CURL} --connect-timeout 30 --max-time 60 -s -S -X POST --data-urlencode "${PAYLOAD}" "${SLACK_WEBHOOK_URL}"
 
 exit $?
-
-# EOF
