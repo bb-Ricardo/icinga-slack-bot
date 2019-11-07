@@ -139,6 +139,8 @@ Following commands are currently implemented:
 >set a downtime for hosts/services
 * reset
 >abort current action (ack/dt)
+* icinga status (is)
+>print current Icinga status details
 
 ### Command status filter
 Following command filters are implemented
@@ -207,6 +209,9 @@ Also just parts of host and service names can be used to search for objects
 
 #### Acknowledge service problem
 ![ack_service_problem](docs/bot_ack_service.png)
+
+#### Icinga status
+![icinga_status](docs/bot_icinga_status.png)
 
 ### Startup messages
 * once the bot starts it will report a short status to the configured default channel
