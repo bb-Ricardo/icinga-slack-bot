@@ -119,6 +119,12 @@ async def handle_command(slack_message, slack_user_id=None):
 
         response = slack_command_help(__url__)
 
+    elif slack_message.startswith("icinga status") or slack_message.startswith("is"):
+
+        logging.debug("Found 'is' command")
+
+        response = get_icinga_daemon_status(config)
+
     elif slack_message.startswith("service status") or slack_message.startswith("ss"):
 
         logging.debug("Found 'service status' command")
@@ -341,45 +347,9 @@ if __name__ == "__main__":
     # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
-    # set up icinga
-    i2_status = get_i2_status(config, "IcingaApplication")
-
-    status_reply = SlackResponse()
-    status_color = "good"
-
-    if i2_status.error:
-
-        # format error message block
-        status_header = "Icinga connection error during bot start"
-        status_text = i2_status.error
-        status_color = "danger"
-
-    else:
-
-        # get icinga app status from response
-        icing_status = i2_status.response["results"][0]["status"]["icingaapplication"]["app"]
-
-        icinga_status_text = list()
-        icinga_status_text.append("Successfully connected to Icinga")
-        icinga_status_text.append("Node name: *%s*" % icing_status["node_name"])
-        icinga_status_text.append("Version: *%s*" % icing_status["version"])
-        icinga_status_text.append("Running since: *%s*" % ts_to_date(icing_status["program_start"]))
-
-        status_header = "Starting up %s" % __description__
-        status_text = "\n\t".join(icinga_status_text)
-
-    status_reply.text = status_header
-    status_reply.add_block("*%s*" % status_header)
-    status_reply.add_attachment(
-        {
-            "fallback": status_header,
-            "text": status_text,
-            "color": status_color
-        }
-    )
+    status_reply = get_icinga_daemon_status(config, startup=True)
 
     # message about start
-
     client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)
 
     post_response = post_slack_message(client, config["slack.default_channel"], status_reply)

@@ -8,6 +8,7 @@ slack_max_message_attachments = 100
 
 plural = lambda x: "s" if x != 1 else ""
 yes_no = lambda x: "Yes" if x > 0 else "No"
+enabled_disabled = lambda x: "Enabled" if x else "Disabled"
 
 
 def enum(*sequential, **named):
