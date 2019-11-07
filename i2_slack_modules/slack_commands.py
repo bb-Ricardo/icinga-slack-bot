@@ -646,7 +646,8 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
         conversations[chat_user_id] = this_conversation
         return SlackResponse(text=response_text)
 
-    if this_conversation.end_date and this_conversation.end_date - 60 < datetime.now().timestamp():
+    if this_conversation.end_date and this_conversation.end_date != -1 and \
+            this_conversation.end_date - 60 < datetime.now().timestamp():
         logging.debug("End date is already in the past. Ask user again for end date")
 
         response_text = "Sorry, end date '%s' lies (almost) in the past. Please define a valid end/expire date." % \
