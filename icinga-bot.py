@@ -313,6 +313,13 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
     else:
 
         response = __do_post(slack_response.text, slack_response.blocks, slack_response.dump_attachments())
+        """
+        if isinstance(slack_response, SlackResponse):
+        else:
+            message can be sent like this with message builder classes
+            unfortunately it causes to many log messages
+            response.response = handle.chat_postMessage(channel=channel, **slack_response.to_dict())
+        """
 
     if response.error:
         logging.error("Posting Slack message to channel '%s' failed: " % response.error)
