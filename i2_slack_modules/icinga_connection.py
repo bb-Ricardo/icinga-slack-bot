@@ -116,7 +116,7 @@ def setup_icinga_connection(config):
     return i2_handle, i2_error
 
 
-def get_i2_status(config, application=None):
+def get_i2_status(config=None, application=None):
     """Request Icinga2 API Endpoint /v1/status
 
     Parameters

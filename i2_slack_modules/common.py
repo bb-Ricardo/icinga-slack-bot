@@ -7,6 +7,7 @@ import configparser
 import logging
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from datetime import datetime
+import inspect
 
 from ctparse import ctparse
 
@@ -347,3 +348,17 @@ def parse_relative_date(data_to_parse=None):
     return_data["dt"] = dt
 
     return return_data
+
+
+def enum(*sequential, **named):
+    """returns an enumerated type"""
+
+    enums = dict(zip(sequential, range(len(sequential))), **named)
+    reverse = dict((value, key) for key, value in enums.items())
+    enums['reverse'] = reverse
+    return type('Enum', (), enums)
+
+
+def my_own_function_name():
+    """returns the name of the function who called this function"""
+    return inspect.currentframe().f_back.f_code.co_name

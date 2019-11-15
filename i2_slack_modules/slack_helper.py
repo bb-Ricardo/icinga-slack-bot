@@ -3,8 +3,9 @@
 # Some Slack helper function to format messages properly
 #
 
-
-from . import SlackResponse, enum, plural, slack_max_block_text_length
+from . import plural, slack_max_block_text_length
+from .common import enum
+from .classes import SlackResponse
 
 
 def get_web2_slack_url(host, service=None, web2_url=""):

@@ -7,11 +7,97 @@ from . import *
 from .common import *
 from .icinga_connection import *
 from .slack_helper import *
+from .classes import SlackConversation
+from .command_definition import implemented_commands
 
 max_messages_to_display_detailed_status = 4
 
 
-def run_icinga_status_query(config=None, status_type=None, slack_message=None):
+def get_command_called(slack_message=None):
+    """
+    return the command dict for a slack_message
+
+    Parameters
+    ----------
+    slack_message : string
+        the Slack command which will be parsed
+
+    Returns
+    -------
+    dict, None: response with command dict if found
+    """
+
+    command_starts_with = list()
+
+    for command in implemented_commands:
+        name = command.get("name")
+        shortcut = command.get("shortcut")
+        if name is None:
+            logging.error("Command name undefined. Check 'command_definition.py' for command with undefined name!")
+        else:
+            command_starts_with.append(name)
+        if shortcut:
+            if isinstance(shortcut, list):
+                command_starts_with.extend(shortcut)
+            elif isinstance(shortcut, str):
+                command_starts_with.append(shortcut)
+            else:
+                logging.error("Command shortcut must be a string or a list")
+
+        for command_start in command_starts_with:
+            if slack_message.startswith(command_start):
+                return command
+
+    return None
+
+
+# noinspection PyUnusedLocal
+def slack_command_ping(*args, **kwargs):
+    """
+    Just respond with a simple pong
+
+    Parameters
+    ----------
+    args, kwargs: None
+        used to hold additional args which are just ignored
+
+    Returns
+    -------
+    SlackResponse: pong answer
+    """
+    return SlackResponse(
+            text="pong :table_tennis_paddle_and_ball:"
+    )
+
+
+# noinspection PyUnusedLocal
+def reset_conversation(slack_user_id=None, conversations=None, *args, **kwargs):
+    """
+    reset a conversation
+
+    Parameters
+    ----------
+    conversations: dict
+        object to hold current state of conversation
+    slack_user_id : string
+        slack user id
+    args, kwargs: None
+        used to hold additional args which are just ignored
+
+    Returns
+    -------
+    SlackResponse: response if acton was successful
+    """
+
+    if slack_user_id is not None and conversations is not None and conversations.get(slack_user_id) is not None:
+        del conversations[slack_user_id]
+        return SlackResponse(text="Your conversation has been reset.")
+
+    return None
+
+
+# noinspection PyUnusedLocal
+def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     """
     Query Icinga2 to get host/service status based on Slack command
 
@@ -24,16 +110,45 @@ def run_icinga_status_query(config=None, status_type=None, slack_message=None):
     ----------
     config : dict
         dictionary with items parsed from config file
-    status_type : str
-        the icinga_object type to request (Host or Service)
     slack_message : string
         the Slack command which will be parsed
-
+    args, kwargs: None
+        used to hold additional args which are just ignored
 
     Returns
     -------
     SlackResponse: with command result
     """
+
+    # parse slack message and determine if this is a service or host status command
+    # also strip off the command from the slack_message
+
+    command_start = None
+    status_type = None
+
+    called_command = get_command_called(slack_message)
+
+    # determine if command handler is actually called for this function
+    if called_command["command_handler"] == my_own_function_name():
+        if slack_message.startswith(called_command["name"]):
+            command_start = called_command["name"]
+        elif called_command["shortcut"] is not None:
+            if isinstance(called_command["shortcut"], list):
+                for shortcut in called_command["shortcut"]:
+                    if slack_message.startswith(shortcut):
+                        command_start = shortcut
+            else:
+                if slack_message.startswith(called_command["shortcut"]):
+                    command_start = called_command["shortcut"]
+
+        if command_start is not None:
+            slack_message = slack_message[len(command_start):].strip()
+            status_type = called_command["status_type"]
+
+    if None in [command_start, status_type]:
+        logging.error("Function (%s) call failed. Unable to determine command_start or status_type" %
+                      my_own_function_name())
+        return SlackResponse(text="Encountered a bot internal error. Please ask your bot admin for help.")
 
     response = SlackResponse()
 
@@ -172,13 +287,16 @@ def run_icinga_status_query(config=None, status_type=None, slack_message=None):
     return response
 
 
-def get_icinga_status_overview(config):
+# noinspection PyUnusedLocal
+def get_icinga_status_overview(config=None, *args, **kwargs):
     """return overview of current host and service status
 
     Parameters
     ----------
     config : dict
         dictionary with items parsed from config file
+    args, kwargs: None
+        used to hold additional args which are just ignored
 
     Returns
     -------
@@ -319,7 +437,8 @@ def get_icinga_status_overview(config):
     return response
 
 
-def slack_command_help(help_url=""):
+# noinspection PyUnusedLocal
+def slack_command_help(help_url="", slack_message=None, *args, **kwargs):
     """
     Return a short command description
 
@@ -327,6 +446,10 @@ def slack_command_help(help_url=""):
     ----------
     help_url : str
         URL to GitHub Repo help section
+    slack_message : string
+        the Slack command which will be parsed
+    args, kwargs: None
+        used to hold additional args which are just ignored
 
     Returns
     -------
@@ -334,32 +457,76 @@ def slack_command_help(help_url=""):
     """
 
     github_logo_url = "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-
-    commands = {
-        "help": "this help",
-        "ping": "bot will answer with `pong`",
-        "service status (ss)": "display service status of all services in non OK state",
-        "host status (hs)": "display host status of all hosts in non UP state",
-        "status overview (so)": "display a summary of current host and service status numbers",
-        "acknowledge (ack)": "acknowledge problematic hosts or services",
-        "downtime (dt)": "set a downtime for hosts/services",
-        "reset": "abort current action (ack/dt)",
-        "icinga status (is)": "print current Icinga status details"
-    }
-
     fields = list()
-    for command, description in commands.items():
-        fields.append({
-            "title": "`<bot> %s`" % command,
-            "value": description
-        })
+    help_color = "#03A8F3"
+    help_headline = None
+
+    if slack_message is None or slack_message.strip() == "help":
+        for command in implemented_commands:
+            command_shortcut = ""
+            if command["shortcut"] is not None:
+                if isinstance(command["shortcut"], list):
+                    command_shortcut = "|".join(command["shortcut"])
+                else:
+                    command_shortcut = command["shortcut"]
+
+                command_shortcut = " (%s)" % command_shortcut
+
+            fields.append({
+                "title": "`<bot> %s%s`" % (
+                    command["name"], command_shortcut
+                ),
+                "value": command["short_description"]
+            })
+
+        help_headline = "Following commands are implemented"
+
+        fields.append({"title": "Detailed help", "value": "For a detailed help type `help <command>`", "short": False})
+
+    else:
+        # user asked for detailed help
+        requested_help_topic = slack_message[4:].strip()
+        requested_help_command = get_command_called(requested_help_topic)
+
+        if requested_help_command:
+            help_headline = "Detailed help for command: %s" % requested_help_command["name"]
+
+            command_shortcut = "None"
+            if requested_help_command["shortcut"] is not None:
+                if isinstance(requested_help_command["shortcut"], list):
+                    command_shortcut = "`, `".join(requested_help_command["shortcut"])
+                else:
+                    command_shortcut = requested_help_command["shortcut"]
+
+                command_shortcut = "`%s`" % command_shortcut
+
+            # fill fields
+            fields.append({"title": "Full command",
+                           "value": "`%s`" % requested_help_command["name"],
+                           "short": False})
+            fields.append({"title": "Shortcut",
+                           "value": command_shortcut,
+                           "short": False})
+            fields.append({"title": "Detailed description",
+                           "value": requested_help_command["long_description"],
+                           "short": False})
+
+        if help_headline is None:
+            # Command doesn't seem to be implemented
+            help_headline = "Sorry, the supplied command is not implemented"
+            fields.append({
+                "title": "Error",
+                "value": "I understood the command `%s`, which is not implemented!" % requested_help_topic,
+                "short": False
+            })
+            help_color = "danger"
 
     return SlackResponse(
         text="Bot help",
-        blocks="*Following commands are implemented*",
+        blocks="*%s*" % help_headline,
         attachments={
             "fallback": "Bot help",
-            "color": "#03A8F3",
+            "color": help_color,
             "fields": fields,
             "footer": "<%s#command-status-filter|Further Help @ GitHub>" % help_url,
             "footer_icon": github_logo_url
@@ -367,7 +534,14 @@ def slack_command_help(help_url=""):
     )
 
 
-def chat_with_user(config=None, conversations=None, chat_message=None, chat_user_id=None, chat_user_data=None):
+# noinspection PyUnusedLocal
+def chat_with_user(
+        config=None,
+        conversations=None,
+        slack_message=None,
+        slack_user_id=None,
+        slack_user_data=None,
+        *args, **kwargs):
     """
     Have a conversation with the user about the action the user wants to perform
 
@@ -377,19 +551,21 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
         dictionary with items parsed from config file
     conversations: dict
         object to hold current state of conversation
-    chat_message : string
+    slack_message : string
         slack message to parse
-    chat_user_id : string
+    slack_user_id : string
         slack user id
-    chat_user_data: dict
+    slack_user_data: dict
         dictionary with user information pulled from Slack
+    args, kwargs: None
+        used to hold additional args which are just ignored
 
     Returns
     -------
     SlackResponse: questions about the action, confirmations or errors
     """
 
-    if chat_message is None or chat_user_id is None:
+    if slack_message is None or slack_user_id is None:
         response = SlackResponse()
 
         response.text = "Slack internal error"
@@ -404,13 +580,13 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
         return response
 
     # New conversation
-    if conversations.get(chat_user_id) is None:
-        conversations[chat_user_id] = SlackConversation(chat_user_id)
+    if conversations.get(slack_user_id) is None:
+        conversations[slack_user_id] = SlackConversation(slack_user_id)
 
-    this_conversation = conversations.get(chat_user_id)
+    this_conversation = conversations.get(slack_user_id)
 
-    # split chat_message into an array
-    cma = chat_message.split(' ')
+    # split slack_message into an array (chat message array)
+    cma = slack_message.split(' ')
 
     # check or command
     if this_conversation.command is None:
@@ -444,7 +620,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
             logging.debug("Filter parsed: %s" % filter_list)
 
             this_conversation.filter = filter_list
-            conversations[chat_user_id] = this_conversation
+            conversations[slack_user_id] = this_conversation
 
     # try to find objects based on filter
     if this_conversation.filter and this_conversation.filter_result is None:
@@ -508,7 +684,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                           (len(this_conversation.filter_result), this_conversation.command))
 
             this_conversation.object_type = object_type
-            conversations[chat_user_id] = this_conversation
+            conversations[slack_user_id] = this_conversation
 
     # parse start time information for downtime
     if this_conversation.command == "DOWNTIME" and this_conversation.start_date is None:
@@ -541,7 +717,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
             else:
                 this_conversation.start_date_parsing_failed = string_parse
 
-            conversations[chat_user_id] = this_conversation
+            conversations[slack_user_id] = this_conversation
 
     # parse end time information
     if this_conversation.end_date is None:
@@ -573,7 +749,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                 else:
                     this_conversation.end_date_parsing_failed = string_parse
 
-            conversations[chat_user_id] = this_conversation
+            conversations[slack_user_id] = this_conversation
 
     if this_conversation.description is None:
 
@@ -583,7 +759,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
             this_conversation.description = " ".join(cma)
             cma = list()
 
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
 
     # ask for missing info
     if this_conversation.filter is None:
@@ -595,7 +771,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
         else:
             response_text = "What do you want to set a downtime for?"
 
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
         return SlackResponse(text=response_text)
 
     # no objects found based on filter
@@ -611,7 +787,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                         % (problematic, " ".join(this_conversation.filter))
 
         this_conversation.filter = None
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
         return SlackResponse(text=response_text)
 
     # ask for not parsed start time
@@ -625,7 +801,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
             response_text = "Sorry, I was not able to understand the start date '%s'. Try again please." \
                             % this_conversation.start_date_parsing_failed
 
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
         return SlackResponse(text=response_text)
 
     # ask for not parsed end date
@@ -644,7 +820,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
             response_text = "Sorry, I was not able to understand the end date '%s'. Try again please." \
                             % this_conversation.end_date_parsing_failed
 
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
         return SlackResponse(text=response_text)
 
     if this_conversation.end_date and this_conversation.end_date != -1 and \
@@ -655,7 +831,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                         ts_to_date(this_conversation.end_date)
 
         this_conversation.end_date = None
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
 
         return SlackResponse(text=response_text)
 
@@ -666,14 +842,14 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                         (ts_to_date(this_conversation.start_date), ts_to_date(this_conversation.end_date))
 
         this_conversation.start_date = None
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
 
         return SlackResponse(text=response_text)
 
     if this_conversation.description is None:
         logging.debug("Description not set, asking for it")
 
-        conversations[chat_user_id] = this_conversation
+        conversations[slack_user_id] = this_conversation
         return SlackResponse(text="Please add a comment.")
 
     # now we seem to have all information and ask user if that's what the user wants
@@ -730,18 +906,18 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
             response.add_block("Do you want to confirm this action?:")
 
             this_conversation.confirmation_sent = True
-            conversations[chat_user_id] = this_conversation
+            conversations[slack_user_id] = this_conversation
 
             return response
 
     if this_conversation.canceled:
-        del conversations[chat_user_id]
+        del conversations[slack_user_id]
         return SlackResponse(text="Ok, action has been canceled!")
 
     if this_conversation.confirmed:
 
         # delete conversation history
-        del conversations[chat_user_id]
+        del conversations[slack_user_id]
 
         response = RequestResponse()
 
@@ -775,7 +951,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                 response.response = i2_handle.actions.schedule_downtime(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')',
-                    author=chat_user_data.get(chat_user_id).get("real_name"),
+                    author=slack_user_data.get(slack_user_id).get("real_name"),
                     comment=this_conversation.description,
                     start_time=this_conversation.start_date,
                     end_time=this_conversation.end_date,
@@ -793,7 +969,7 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
                 response.response = i2_handle.actions.acknowledge_problem(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')',
-                    author=chat_user_data.get(chat_user_id).get("real_name"),
+                    author=slack_user_data.get(slack_user_id).get("real_name"),
                     comment=this_conversation.description,
                     expiry=None if this_conversation.end_date == -1 else this_conversation.end_date,
                     sticky=True
@@ -826,7 +1002,8 @@ def chat_with_user(config=None, conversations=None, chat_message=None, chat_user
 
 
 # noinspection PyTypeChecker
-def get_icinga_daemon_status(config, startup=False):
+# noinspection PyUnusedLocal
+def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
     """
     Get the current status of the Icinga2 instance
 
@@ -836,6 +1013,8 @@ def get_icinga_daemon_status(config, startup=False):
         dictionary with items parsed from config file
     startup : bool
         define if function is called during startup
+    args, kwargs: None
+        used to hold additional args which are just ignored
 
     Returns
     -------
@@ -853,12 +1032,13 @@ def get_icinga_daemon_status(config, startup=False):
         "data": None
     }
 
-    for component in i2_status.response.get("results"):
+    if not i2_status.error:
+        for component in i2_status.response.get("results"):
 
-        if component["name"] == apilistener["component_name"]:
-            apilistener["data"] = component["status"]["api"]
-        if component["name"] == icingaapplication["component_name"]:
-            icingaapplication["data"] = component["status"]["icingaapplication"]["app"]
+            if component["name"] == apilistener["component_name"]:
+                apilistener["data"] = component["status"]["api"]
+            if component["name"] == icingaapplication["component_name"]:
+                icingaapplication["data"] = component["status"]["icingaapplication"]["app"]
 
     status_reply = SlackResponse()
     status_color = "good"

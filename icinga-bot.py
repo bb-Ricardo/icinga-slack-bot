@@ -9,15 +9,31 @@ used to narrow down the returned status list.
 
 # import  modules
 
+import logging
 import asyncio
 import re
 import ssl as ssl_lib
+from datetime import datetime
 
 import certifi
 import slack
 
-from i2_slack_modules import SlackResponse
-from i2_slack_modules.slack_commands import *
+from i2_slack_modules.classes import SlackResponse
+from i2_slack_modules.icinga_connection import RequestResponse
+from i2_slack_modules.common import parse_command_line, parse_own_config, setup_logging, do_error_exit
+# need import here as they will be called on whatever is defined in command_definition command_handlers
+# noinspection PyUnresolvedReferences
+from i2_slack_modules.slack_commands import (
+    get_command_called,
+    slack_command_ping,
+    reset_conversation,
+    run_icinga_status_query,
+    get_icinga_status_overview,
+    slack_command_help,
+    chat_with_user,
+    get_icinga_daemon_status
+)
+from i2_slack_modules import slack_max_message_blocks, slack_max_message_text_length
 
 
 __version__ = "0.1.0"
@@ -93,69 +109,39 @@ async def handle_command(slack_message, slack_user_id=None):
     # lowercase makes parsing easier
     slack_message = slack_message.lower()
 
-    if slack_message == "reset" and conversations.get(slack_user_id) is not None:
-        del conversations[slack_user_id]
-        return SlackResponse(text="Your conversation has been reset.")
+    called_command = get_command_called(slack_message)
 
-    if conversations.get(slack_user_id) or \
-            slack_message.startswith("ack") or \
-            slack_message.startswith("dt") or \
-            slack_message.startswith("downtime"):
-
-        # try to chat with user
-        response = chat_with_user(config, conversations, slack_message, slack_user_id, user_info)
-
-    elif slack_message.startswith("ping"):
-
-        logging.debug("Found 'ping' command")
-
-        response = SlackResponse(
-            text="pong :table_tennis_paddle_and_ball:"
+    # special case to reset conversation
+    if called_command is not None and called_command["name"] == "reset":
+        response = globals()[called_command["command_handler"]](
+            slack_user_id=slack_user_id,
+            conversations=conversations
         )
 
-    elif slack_message.startswith("help"):
+    if response is None and called_command and called_command["name"] != "reset":
 
-        logging.debug("Found 'help' command")
+        logging.debug("Received '%s' command" % called_command.get("name"))
 
-        response = slack_command_help(__url__)
+        command_handler = None
+        try:
+            command_handler = globals()[called_command["command_handler"]]
+        except KeyError:
+            logging.error("command_handler for command '%s' not defined in command_definition.py" %
+                          called_command["name"])
+            response = SlackResponse(text="Encountered a bot internal error. Please ask your bot admin for help.")
 
-    elif slack_message.startswith("icinga status") or slack_message.startswith("is"):
+        if command_handler:
+            response = command_handler(
+                config=config,
+                help_url=__url__,
+                conversations=conversations,
+                slack_message=slack_message,
+                slack_user_id=slack_user_id,
+                slack_user_data=user_info)
 
-        logging.debug("Found 'is' command")
-
-        response = get_icinga_daemon_status(config)
-
-    elif slack_message.startswith("service status") or slack_message.startswith("ss"):
-
-        logging.debug("Found 'service status' command")
-
-        status_type = "Service"
-
-        if slack_message.startswith("ss"):
-            slack_message = slack_message[len("ss"):].strip()
-        else:
-            slack_message = slack_message[len("service status"):].strip()
-
-        response = run_icinga_status_query(config, status_type, slack_message)
-
-    elif slack_message.startswith("host status") or slack_message.startswith("hs"):
-
-        logging.debug("Found 'host status' command")
-
-        status_type = "Host"
-
-        if slack_message.startswith("hs"):
-            slack_message = slack_message[len("hs"):].strip()
-        else:
-            slack_message = slack_message[len("host status"):].strip()
-
-        response = run_icinga_status_query(config, status_type, slack_message)
-
-    elif slack_message.startswith("status overview") or slack_message.startswith("so"):
-
-        logging.debug("Found 'status overview' command")
-
-        response = get_icinga_status_overview(config)
+    if response is None and conversations.get(slack_user_id):
+        # try to chat with user
+        response = chat_with_user(config, conversations, slack_message, slack_user_id, user_info)
 
     # we didn't understand the message
     if not response:
@@ -354,7 +340,7 @@ if __name__ == "__main__":
     # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
-    status_reply = get_icinga_daemon_status(config, startup=True)
+    status_reply = get_icinga_daemon_status(config=config, startup=True)
 
     # message about start
     client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)
