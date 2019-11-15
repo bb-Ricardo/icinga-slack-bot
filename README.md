@@ -68,7 +68,7 @@ the settings.
 
 Now you should be able to run the image with following command
 ```
-docker run -d -v /PATH/TO/ìcinga-bot.ini:/app/icinga-bot.ini --name bot icinga-bot
+docker run -d -v /PATH/TO/icinga-bot.ini:/app/icinga-bot.ini --name bot icinga-bot
 ```
 
 ### Icinga API permissions
@@ -76,6 +76,7 @@ docker run -d -v /PATH/TO/ìcinga-bot.ini:/app/icinga-bot.ini --name bot icinga-
   * objects/query/Host
   * objects/query/Service
   * status/query
+  * actions/*
 
 This would be an Icinga Slack bot API user
 ```
@@ -137,7 +138,7 @@ Following commands are currently implemented:
 >acknowledge problematic hosts or services
 * downtime (dt)
 >set a downtime for hosts/services
-* reset
+* reset (abort)
 >abort current action (ack/dt)
 * icinga status (is)
 >print current Icinga status details
@@ -149,14 +150,17 @@ Following command filters are implemented
   * down
   * unreachable (unreach)
   * all
+  * problems
 * service status
   * ok
   * warning (warn)
   * critical (crit)
   * unknown
   * all
+  * problems
 
-command filter can be combined like "warn crit" which would return all services in WARNING and CRITICAL state
+Command filter can be combined like "warn crit" which would return all services in WARNING and CRITICAL state.
+Also "problems" could be used to query all service with a certain name match in **NOT** OK sate.
 
 ***Important:***
 * The default host status filter will only display hosts which are **NOT** UP
@@ -173,6 +177,68 @@ Also just parts of host and service names can be used to search for objects
 `
 (service.state == 2) && ( match("*test*", host.name) && match("*web*", service.name) ) || ( match("*web*", host.name) && match("*test*", service.name) )
 `
+
+### Actions
+Actions have been added to perform certain actions on hosts or services.
+Current actions are `Acknowledgements` and `Downtimes`.
+
+#### Acknowledgements
+This command will start a dialog to set an acknowledgement for an unhandled service or host.
+This can be started with this command and the bot will ask questions about the details on following order:
+1. host/service filter
+2. time when acknowledgement should expire (or never)
+3. a comment which should be added to the acknowledgement
+
+##### INFO: time can be submitted in a relative format like:
+_tomorrow 3pm_, _friday noon_ or _monday morning_<br>
+Or more specific like _january 2nd_ or even more specific like _29.02.2020 13:00_.
+Just try and see what works best for you.<br>
+At the end the bot will ask you for a confirmation which can be answered with `yes` or just `y` or `no`.
+After that the bot will report if the action was successful or not.
+
+##### SORT CUT:
+It's also possible to short cut the whole Q/A and just issue the action in one command:
+```
+ack my-server ntp until tomorrow evening Wrong ntp config, needs update
+```
+This will acknowledge a problematic service ntp on my-server until 6pm the following day.
+
+##### STRUCTURE:
+```
+ack <host> <service> until <time> <comment>
+```
+or
+```
+ack <host> until <time> <comment>
+```
+or
+```
+ack <service> until <time> <comment>
+```
+
+#### Downtimes
+This command works pretty similar to the acknowledgement command except that the bot
+will ask for a downtime start. Here it's also possible to use a relative time format.
+
+##### SORT CUT:
+It's also possible to short cut the whole Q/A and just issue the action in one command:
+```
+dt my-server ntp from now until tomorrow evening NTP update
+```
+This will set a downtime for the service ntp on my-server until 6pm the following day.
+
+##### STRUCTURE:
+```
+dt <host> <service> from <time> until <time> <comment>
+```
+or
+```
+dt <host> from <time> until <time> <comment>
+```
+or
+```
+dt <service> from <time> until <time> <comment>
+```
 
 ### Command examples
 * ```hs down test``` will display all hosts in DOWN state which match "test" as host name like "testserver" or "devtest"
@@ -226,7 +292,12 @@ To get Slack notifications if something goes wrong you can check out the notific
 ![alert host up](docs/notification_host_up.png)
 ![alert service problem](docs/notification_service_problem.png)
 
+
 ## License
 >You can check out the full license [here](LICENSE.txt)
 
 This project is licensed under the terms of the **MIT** license.
+
+### Saying Thank You
+quite some inspiration came from [mlabouardy](https://github.com/mlabouardy) and his Go implementation
+of a [slack bot](https://github.com/mlabouardy/icinga2-slack-bot)

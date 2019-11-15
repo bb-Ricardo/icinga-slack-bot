@@ -121,7 +121,7 @@ implemented_commands = [
                             "*STRUCTURE:*\n"
                             "`ack <host> <service> until <time> <comment>` or\n"
                             "`ack <host> until <time> <comment>` or\n"
-                            "`ack <service> until <time> <comment>` or\n",
+                            "`ack <service> until <time> <comment>`\n",
         "command_handler": "chat_with_user"
     },
     {
@@ -151,7 +151,7 @@ implemented_commands = [
                             "*STRUCTURE:*\n"
                             "`dt <host> <service> from <time> until <time> <comment>` or\n"
                             "`dt <host> from <time> until <time> <comment>` or\n"
-                            "`dt <service> from <time> until <time> <comment>` or\n",
+                            "`dt <service> from <time> until <time> <comment>`\n",
         "command_handler": "chat_with_user"
     },
     {
