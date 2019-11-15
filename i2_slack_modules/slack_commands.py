@@ -311,66 +311,31 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
 
     response = BotResponse(text="Status Overview")
 
-    # get icinga host objects
-    i2_host_response = get_i2_object(config, "Host")
+    i2_status = get_i2_status(config, "CIB")
 
-    if i2_host_response.error:
-        return slack_error_response(header="Icinga request error", error_message=i2_host_response.error)
+    if i2_status.error:
+        return slack_error_response(header="Icinga request error", error_message=i2_status.error)
 
-    # get icinga service objects
-    i2_service_response = get_i2_object(config, "Service")
-
-    if i2_service_response.error:
-        return slack_error_response(header="Icinga request error", error_message=i2_service_response.error)
+    data = i2_status.response["results"][0]["status"]
 
     host_count = {
-        "UP": 0,
-        "DOWN": 0,
-        "UNREACHABLE": 0,
-        "UNHANDLED": 0,
-        "ACKNOWLEDGED": 0,
-        "IN DOWNTIME": 0
+        "UP": data.get("num_hosts_up"),
+        "DOWN": data.get("num_hosts_down"),
+        "UNREACHABLE": data.get("num_hosts_unreachable"),
+        "UNHANDLED": int(data.get("num_hosts_problem") - data.get("num_hosts_handled")),
+        "ACKNOWLEDGED": data.get("num_hosts_acknowledged"),
+        "IN DOWNTIME": data.get("num_hosts_in_downtime")
     }
 
     service_count = {
-        "OK": 0,
-        "WARNING": 0,
-        "CRITICAL": 0,
-        "UNKNOWN": 0,
-        "UNHANDLED": 0,
-        "ACKNOWLEDGED": 0,
-        "IN DOWNTIME": 0
+        "OK": data.get("num_services_ok"),
+        "WARNING": data.get("num_services_warning"),
+        "CRITICAL": data.get("num_services_critical"),
+        "UNKNOWN": data.get("num_services_unknown"),
+        "UNHANDLED": int(data.get("num_services_problem") - data.get("num_services_handled")),
+        "ACKNOWLEDGED": data.get("num_services_acknowledged"),
+        "IN DOWNTIME": data.get("num_services_in_downtime")
     }
-
-    # count all host objects
-    for host in i2_host_response.response:
-        host_count[host_states.reverse[int(host.get("state"))]] += 1
-
-        if host.get("acknowledgement") > 0:
-            host_count["ACKNOWLEDGED"] += 1
-
-        if host.get("downtime_depth") > 0:
-            host_count["IN DOWNTIME"] += 1
-
-        if host.get("state") > 0 and \
-                host.get("acknowledgement") == 0 and \
-                host.get("downtime_depth") == 0:
-            host_count["UNHANDLED"] += 1
-
-    # count all service objects
-    for service in i2_service_response.response:
-        service_count[service_states.reverse[int(service.get("state"))]] += 1
-
-        if service.get("acknowledgement") > 0:
-            service_count["ACKNOWLEDGED"] += 1
-
-        if service.get("downtime_depth") > 0:
-            service_count["IN DOWNTIME"] += 1
-
-        if service.get("state") > 0 and \
-                service.get("acknowledgement") == 0 and \
-                service.get("downtime_depth") == 0:
-            service_count["UNHANDLED"] += 1
 
     # add block text with number of unhandled problems
     problems_unhandled = host_count["UNHANDLED"] + service_count["UNHANDLED"]
@@ -385,7 +350,7 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
             continue
         host_fields.append({
             "title": title,
-            "value": value,
+            "value": int(value),
             "short": True
         })
 
@@ -407,7 +372,7 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
             continue
         service_fields.append({
             "title": title,
-            "value": value,
+            "value": int(value),
             "short": True
         })
 
