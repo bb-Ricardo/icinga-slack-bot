@@ -161,3 +161,42 @@ def format_slack_response(config, object_type="Host", result_objects=None):
         response.add_block(block_text)
 
     return response.blocks
+
+
+def slack_error_response(header=None, fallback_text=None, error_message=None):
+    """generate a slack error response
+
+    Parameters
+    ----------
+    header : str
+        string which should be used as header (default: Bot internal error)
+    fallback_text : str
+        fallback text with e short error message (default: header)
+    error_message : str
+        a meaningful error description (default: see below)
+
+    Returns
+    -------
+    SlackResponse: response with error message
+    """
+
+    if header is None:
+        header = "Bot internal error"
+
+    if fallback_text is None:
+        fallback_text = header
+
+    if error_message is None:
+        error_message = "Encountered a bot internal error. Please ask your bot admin for help."
+
+    response = SlackResponse(text=fallback_text)
+    response.add_block("*%s*" % header)
+    response.add_attachment(
+        {
+            "fallback": fallback_text,
+            "text": "Error: %s" % error_message,
+            "color": "danger"
+        }
+    )
+
+    return response

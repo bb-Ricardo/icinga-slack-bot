@@ -158,7 +158,8 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     if None in [command_start, status_type]:
         logging.error("Function (%s) call failed. Unable to determine command_start or status_type" %
                       my_own_function_name())
-        return SlackResponse(text="Encountered a bot internal error. Please ask your bot admin for help.")
+
+        return slack_error_response()
 
     # take care of special request to get all problems and not just unhandled ones
     if slack_message.startswith("problems"):
@@ -169,7 +170,7 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     # inform user about the filter mistake
     if i2_filter_error:
 
-        logging.debug("Found error during filter compilation. Icinga2 won't be queried.")
+        logging.info("Found error during filter compilation. Icinga2 won't be queried.")
 
         if len(i2_filter_error) == 1:
             i2_error_response = "filter '%s' not valid for %s status commands,\ncheck `help` command" % \
@@ -179,14 +180,10 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
                 "filters '%s' and '%s' are not valid for %s status commands,\ncheck `help` command" % \
                 ("', '".join(i2_filter_error[:-1]), i2_filter_error[-1], status_type)
 
-        response.text = "Command error"
-        response.add_block("*I'm having trouble understanding what you meant*")
-        response.add_attachment(
-            {
-                "fallback": response.text,
-                "text": i2_error_response,
-                "color": "danger"
-            }
+        response = slack_error_response(
+            header="I'm having trouble understanding what you meant",
+            fallback_text="Command error",
+            error_message=i2_error_response
         )
 
     else:
@@ -200,15 +197,7 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
         i2_response = get_i2_object(config, status_type, i2_filter_status, i2_filter_names, acknowledged, downtime)
 
         if i2_response.error:
-            response.text = "Icinga request error"
-            response.add_block("*%s*" % response.text)
-            response.add_attachment(
-                {
-                    "fallback": response.text,
-                    "text": "Error: %s" % i2_response.error,
-                    "color": "danger"
-                }
-            )
+            response = slack_error_response(header="Icinga request error", error_message=i2_response.error)
 
         # Just a String was returned
         elif type(i2_response.response) is str:
@@ -326,31 +315,13 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
     i2_host_response = get_i2_object(config, "Host")
 
     if i2_host_response.error:
-        response.text = "Icinga request error"
-        response.add_block("*%s*" % response.text)
-        response.add_attachment(
-            {
-                "fallback": response.text,
-                "text": "Error: %s" % i2_host_response.error,
-                "color": "danger"
-            }
-        )
-        return response
+        return slack_error_response(header="Icinga request error", error_message=i2_host_response.error)
 
     # get icinga service objects
     i2_service_response = get_i2_object(config, "Service")
 
     if i2_service_response.error:
-        response.text = "Icinga request error"
-        response.add_block("*%s*" % response.text)
-        response.add_attachment(
-            {
-                "fallback": response.text,
-                "text": "Error: %s" % i2_service_response.error,
-                "color": "danger"
-            }
-        )
-        return response
+        return slack_error_response(header="Icinga request error", error_message=i2_service_response.error)
 
     host_count = {
         "UP": 0,
@@ -585,19 +556,14 @@ def chat_with_user(
     SlackResponse: questions about the action, confirmations or errors
     """
 
-    if slack_message is None or slack_user_id is None:
-        response = SlackResponse()
+    if slack_message is None:
+        logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_message", my_own_function_name()))
 
-        response.text = "Slack internal error"
-        response.add_block("*%s*" % response.text)
-        response.add_attachment(
-            {
-                "fallback": response.text,
-                "text": "Error: parameters missing in 'chat_with_user' function",
-                "color": "danger"
-            }
-        )
-        return response
+    if slack_user_id is None:
+        logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_user_id", my_own_function_name()))
+
+    if slack_message is None or slack_user_id is None:
+        return slack_error_response()
 
     # New conversation
     if conversations.get(slack_user_id) is None:
@@ -671,17 +637,12 @@ def chat_with_user(
         # encountered Icinga request issue
         if i2_result.error:
             logging.debug("No icinga objects found for filter: %s" % this_conversation.filter)
-            error_response = SlackResponse(text="Icinga Error")
-            error_response.text = "Icinga request error while trying to find matching hosts/services"
-            error_response.add_block("*%s*" % error_response.text)
-            error_response.add_attachment(
-                {
-                    "fallback": error_response.text,
-                    "text": "Error: %s" % i2_result.error,
-                    "color": "danger"
-                }
+
+            return slack_error_response(
+                header="Icinga request error while trying to find matching hosts/services",
+                fallback_text="Icinga Error",
+                error_message=i2_result.error
             )
-            return error_response
 
         # we can set a downtime for all objects no matter their state
         if this_conversation.command == "DOWNTIME" and len(i2_result.response) > 0:
@@ -955,15 +916,15 @@ def chat_with_user(
         # delete conversation history
         del conversations[slack_user_id]
 
-        response = RequestResponse()
-
         i2_handle, i2_error = setup_icinga_connection(config)
 
         if not i2_handle:
             if i2_error is not None:
-                return RequestResponse(error=i2_error)
+                error_message = i2_error
             else:
-                return RequestResponse(error="Unknown error while setting up Icinga2 connection")
+                error_message = "Unknown error while setting up Icinga2 connection"
+
+            return slack_error_response(header="Icinga request error", error_message=error_message)
 
         # define filters
         filter_list = list()
@@ -976,6 +937,7 @@ def chat_with_user(
                                    (i2_object.get("host_name"), i2_object.get("name")))
 
         success_message = None
+        i2_error = None
         try:
 
             if this_conversation.command == "DOWNTIME":
@@ -984,7 +946,7 @@ def chat_with_user(
 
                 success_message = "Successfully scheduled downtime!"
 
-                response.response = i2_handle.actions.schedule_downtime(
+                i2_response = i2_handle.actions.schedule_downtime(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')',
                     author=slack_user_data.get(slack_user_id).get("real_name"),
@@ -1002,7 +964,7 @@ def chat_with_user(
                                   (this_conversation.object_type, plural(len(filter_list)))
 
                 # https://github.com/fmnisme/python-icinga2api/blob/master/doc/4-actions.md#-actionsacknowledge_problem
-                response.response = i2_handle.actions.acknowledge_problem(
+                i2_response = i2_handle.actions.acknowledge_problem(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')',
                     author=slack_user_data.get(slack_user_id).get("real_name"),
@@ -1012,27 +974,14 @@ def chat_with_user(
                 )
 
         except Exception as e:
-            response.error = str(e)
-            logging.error("Unable to query Icinga2 status: %s" % response.error)
+            i2_error = str(e)
+            logging.error("Unable to perform Icinga2 action: %s" % i2_error)
             pass
 
-        slack_response = SlackResponse()
+        if i2_error:
+            return slack_error_response(header="Icinga request error", error_message=i2_error)
 
-        if response.error:
-            slack_response.text = "Icinga request error"
-            slack_response.add_block("*%s*" % response.text)
-            slack_response.add_attachment(
-                {
-                    "fallback": slack_response.text,
-                    "text": "Error: %s" % response.error,
-                    "color": "danger"
-                }
-            )
-            return slack_response
-
-        slack_response.text = success_message
-
-        return slack_response
+        return SlackResponse(text=success_message)
 
     return None
 

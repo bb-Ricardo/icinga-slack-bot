@@ -20,7 +20,14 @@ import slack
 
 from i2_slack_modules.classes import SlackResponse
 from i2_slack_modules.icinga_connection import RequestResponse
-from i2_slack_modules.common import parse_command_line, parse_own_config, setup_logging, do_error_exit
+from i2_slack_modules.common import (
+    parse_command_line,
+    parse_own_config,
+    setup_logging,
+    do_error_exit,
+    my_own_function_name
+)
+from i2_slack_modules.slack_helper import slack_error_response
 # need import here as they will be called on whatever is defined in command_definition command_handlers
 # noinspection PyUnresolvedReferences
 from i2_slack_modules.slack_commands import (
@@ -124,7 +131,7 @@ async def handle_command(slack_message, slack_user_id=None):
         except KeyError:
             logging.error("command_handler for command '%s' not defined in command_definition.py" %
                           called_command["name"])
-            response = SlackResponse(text="Encountered a bot internal error. Please ask your bot admin for help.")
+            response = slack_error_response()
 
         if command_handler:
             response = command_handler(
@@ -177,16 +184,18 @@ async def message(**payload):
         # check if user data cache expired
         if user_info.get(data.get("user")) and \
                 user_info[data.get("user")]["ts_created"] + user_data_cache_timeout < datetime.now().timestamp():
+
             logging.debug("User data cache for user '%s' expired." % data.get("user"))
             del user_info[data.get("user")]
 
         # fetch user data
         if user_info.get(data.get("user")) is None:
             logging.debug("No cached user data found. Fetching from Slack.")
-            slack_response = await web_client.users_info(user=data.get("user"))
-            if slack_response.get("user"):
+            slack_user_data = await web_client.users_info(user=data.get("user"))
+
+            if slack_user_data.get("user"):
                 logging.debug("Successfully fetched user data.")
-                user_info[data.get("user")] = slack_response.get("user")
+                user_info[data.get("user")] = slack_user_data.get("user")
                 user_info[data.get("user")]["ts_created"] = datetime.now().timestamp()
 
         # parse command
@@ -195,17 +204,9 @@ async def message(**payload):
         slack_api_response = post_slack_message(web_client, channel_id, response)
 
         if slack_api_response.error:
-            # format error message block
-            header_text = "Slack API error while posting to Slack"
-            error_message = SlackResponse(
-                text=header_text,
-                blocks="*%s*" % header_text,
-                attachments={
-                    "fallback": header_text,
-                    "text": slack_api_response.error,
-                    "color": "danger"
-                }
-            )
+            error_message = slack_error_response(
+                header="Slack API error while posting to Slack",
+                error_message=slack_api_response.error)
 
             post_slack_message(web_client, channel_id, error_message)
 
@@ -258,11 +259,11 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
     response = RequestResponse()
 
     if handle is None:
-        return RequestResponse(error="Error in function 'post_slack_message': no client handle defined")
+        return RequestResponse(error="Error in function '%s': no client handle defined" % (my_own_function_name()))
     if channel is None:
-        return RequestResponse(error="Error in function 'post_slack_message': no channel defined")
+        return RequestResponse(error="Error in function '%s': no channel defined" % (my_own_function_name()))
     if slack_response is None:
-        return RequestResponse(error="Error in function 'post_slack_message': no slack_response defined")
+        return RequestResponse(error="Error in function '%s': no slack_response defined" % (my_own_function_name()))
 
     # split post into multiple posts
     if slack_response.blocks is not None and len(slack_response.blocks) > 50:
