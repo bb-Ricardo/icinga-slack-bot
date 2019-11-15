@@ -438,14 +438,14 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
 
 
 # noinspection PyUnusedLocal
-def slack_command_help(help_url="", slack_message=None, *args, **kwargs):
+def slack_command_help(config=None, slack_message=None, *args, **kwargs):
     """
     Return a short command description
 
     Parameters
     ----------
-    help_url : str
-        URL to GitHub Repo help section
+    config : dict
+        dictionary with items parsed from config file
     slack_message : string
         the Slack command which will be parsed
     args, kwargs: None
@@ -528,7 +528,7 @@ def slack_command_help(help_url="", slack_message=None, *args, **kwargs):
             "fallback": "Bot help",
             "color": help_color,
             "fields": fields,
-            "footer": "<%s#command-status-filter|Further Help @ GitHub>" % help_url,
+            "footer": "<%s#command-status-filter|Further Help @ GitHub>" % config["bot.url"],
             "footer_icon": github_logo_url
         }
     )
@@ -1074,7 +1074,7 @@ def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
 
         icinga_status_text = list()
         if startup:
-            status_header = "Starting up Icinga2 Slack bot"
+            status_header = "Starting up %s (version: %s)" % (config["bot.description"], config["bot.version"])
             icinga_status_text.append("Successfully connected to Icinga")
         else:
             status_header = "Icinga Status"

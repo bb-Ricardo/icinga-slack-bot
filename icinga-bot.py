@@ -89,7 +89,6 @@ async def handle_command(slack_message, slack_user_id=None):
     ----------
     slack_message : str
         Slack message to parse
-
     slack_user_id : str
         Slack user id who sent the message
 
@@ -133,7 +132,6 @@ async def handle_command(slack_message, slack_user_id=None):
         if command_handler:
             response = command_handler(
                 config=config,
-                help_url=__url__,
                 conversations=conversations,
                 slack_message=slack_message,
                 slack_user_id=slack_user_id,
@@ -336,6 +334,15 @@ if __name__ == "__main__":
 
     if not config:
         do_error_exit("Config parsing error")
+
+    ################
+    #   add bot details to config dict
+    config["bot.version"] = __version__
+    config["bot.version_date"] = __version_date__
+    config["bot.author"] = __author__
+    config["bot.description"] = __description__
+    config["bot.license"] = __license__
+    config["bot.url"] = __url__
 
     # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
