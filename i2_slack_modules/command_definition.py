@@ -26,25 +26,32 @@ implemented_commands = [
         "shortcut": "ss",
         "short_description": "display service status of all services in non OK state",
         "long_description": "This command can be used to query icinga for current service states.\n"
-                            "The default filter will only display services which are *NOT* OK.\n"
+                            "The default filter will only display services which are *NOT* OK and "
+                            "have *not been acknowledged* and are *not in a downtime*.\n"
                             "You can also request certain service states like:\n"
                             "• `ok`\n"
                             "• `warning | warn`\n"
                             "• `critical | crit`\n"
                             "• `unknown`\n"
                             "• `all`\n"
+                            "• `problems`\n"
                             "Filter can be combined like `warn crit` which would return all services "
                             "in WARNING or CRITICAL state.\n"
                             "To display all service states just add the keyword `all` to your command.\n"
                             "You can add host names or services names to any status command.\n"
+                            "To display all services no matter if they are acknowledged or in a downtime "
+                            "then you can add the keyword `problems`\n"
                             "Also just parts of host and service names can be used to search for objects.\n"
                             "*IMPORTANT:* when using the service status command only the first two names will "
-                            " be used as filter and all others are going to be ignored\n"
+                            "be used as filter and all others are going to be ignored.\n"
                             "*_Examples_*:\n"
                             "`ss warn crit ntp`\n"
                             "\twill display all services which match \"ntp\" and are in state CRITICAL or WARNING\n"
                             "`ss webserver nginx`\n"
-                            "\twill display all services which match \"webserver\" and \"nginx\"",
+                            "\twill display all services which match \"webserver\" and \"nginx\"\n"
+                            "`ss problems`\n"
+                            "\twill display problematic services including ones which are acknowledged or "
+                            "in a downtime\n",
         "command_handler": "run_icinga_status_query",
         "status_type": "Service"
     },
@@ -53,22 +60,29 @@ implemented_commands = [
         "shortcut": "hs",
         "short_description": "display host status of all hosts in non UP state",
         "long_description": "This command can be used to query icinga for current host states.\n"
-                            "The default filter will only display hosts which are *NOT* UP.\n"
+                            "The default filter will only display hosts which are *NOT* UP and "
+                            "have *not been acknowledged* and are *not in a downtime*.\n"
                             "You can also request certain host states like:\n"
                             "• `up`\n"
                             "• `down`\n"
                             "• `unreachable | unreach`\n"
                             "• `all`\n"
+                            "• `problems`\n"
                             "Filter can be combined like `down unreach` which would return all hosts "
                             "in DOWN or UNREACHABLE state.\n"
                             "To display all host states just add the keyword `all` to your command.\n"
+                            "To display all services no matter if they are acknowledged or in a downtime "
+                            "then you can add the keyword `problems`\n"
                             "Also just parts of host names can be used to search for objects.\n"
                             "*_Examples_*:\n"
                             "`hs down test`\n"
                             "\twill display all hosts in DOWN state which match \"test\" "
                             "as host name like \"testserver\" or \"devtest\"\n"
                             "`hs all`\n"
-                            "\twill return all hosts and their status",
+                            "\twill return all hosts and their status\n"
+                            "`hs problems`\n"
+                            "\twill display problematic hosts including ones which are acknowledged or "
+                            "in a downtime\n",
         "command_handler": "run_icinga_status_query",
         "status_type": "Host"
     },

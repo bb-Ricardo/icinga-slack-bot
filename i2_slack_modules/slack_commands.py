@@ -123,6 +123,10 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     # parse slack message and determine if this is a service or host status command
     # also strip off the command from the slack_message
 
+    response = SlackResponse()
+
+    display_just_unhandled_objects_for_default_query = True
+
     command_start = None
     status_type = None
 
@@ -150,7 +154,9 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
                       my_own_function_name())
         return SlackResponse(text="Encountered a bot internal error. Please ask your bot admin for help.")
 
-    response = SlackResponse()
+    # take care of special request to get all problems and not just unhandled ones
+    if slack_message.startswith("problems"):
+        display_just_unhandled_objects_for_default_query = False
 
     i2_filter_status, i2_filter_names, i2_filter_error = get_i2_filter(status_type, slack_message)
 
@@ -180,7 +186,12 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     else:
 
         # get icinga objects
-        i2_response = get_i2_object(config, status_type, i2_filter_status, i2_filter_names)
+        acknowledged = None
+        downtime = None
+        if display_just_unhandled_objects_for_default_query and len(i2_filter_names) == 0:
+            acknowledged = downtime = False
+
+        i2_response = get_i2_object(config, status_type, i2_filter_status, i2_filter_names, acknowledged, downtime)
 
         if i2_response.error:
             response.text = "Icinga request error"

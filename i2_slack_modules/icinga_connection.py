@@ -155,7 +155,7 @@ def get_i2_status(config=None, application=None):
     return response
 
 
-def get_i2_object(config, object_type="Host", filter_states=None, filter_names=None):
+def get_i2_object(config, object_type="Host", filter_states=None, filter_names=None, acknowledged=None, downtime=None):
     """Request Icinga2 API Endpoint /v1/objects
 
     Parameters
@@ -170,6 +170,14 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
     filter_names : list, optional
         a list of object names to filter for, use function "get_i2_filter"
         to generate this list (default is None)
+    acknowledged: bool, optional
+        if None, acknowledge filter will NOT be added
+        if True, only acknowledged objects are requested
+        if False, only unacknowledged objects are requested
+    downtime: bool, optional
+        if None, downtime filter will NOT be added
+        if True, only objects in downtime are requested
+        if False, only objects not in downtime are requested
 
     Returns
     -------
@@ -201,7 +209,7 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
         if i2_filters:
             i2_filters += " && "
         else:
-            i2_filters = str("")
+            i2_filters = ""
 
         if object_type is "Host":
 
@@ -226,6 +234,18 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
                               (filter_names[0], filter_names[1])
                 i2_filters += ' || ( match("*%s*", host.name) && match("*%s*", service.name) ) )' % \
                               (filter_names[1], filter_names[0])
+
+    if acknowledged is not None:
+        if i2_filters:
+            i2_filters += " && %s.acknowledgement %s" % (object_type.lower(), "> 0" if acknowledged else "== 0")
+        else:
+            i2_filters = ""
+
+    if downtime is not None:
+        if i2_filters:
+            i2_filters += " && %s.downtime_depth %s" % (object_type.lower(), "> 0" if downtime else "== 0")
+        else:
+            i2_filters = ""
 
     if config["icinga.filter"] != "":
         if i2_filters:
@@ -370,8 +390,10 @@ def get_i2_filter(object_type="Host", slack_message=""):
 
             filter_options.remove(unaltered_filter_option)
 
-    # get problem host/services if no filters are requested
-    if len(filter_states) == 0 and "all" not in filter_options and len(filter_options) == 0:
+    # get problem hosts/services if no filters are requested
+    if (len(filter_states) == 0 and "all" not in filter_options and len(filter_options) == 0) or \
+            "problems" in filter_options:
+
         if object_type is "Host":
             filter_states.append("host.state != 0")
         else:
@@ -380,6 +402,9 @@ def get_i2_filter(object_type="Host", slack_message=""):
     # remove all attribute from filter
     if "all" in filter_options:
         filter_options.remove("all")
+
+    if "problems" in filter_options:
+        filter_options.remove("problems")
 
     if len(filter_error) == 0:
         filter_error = None
