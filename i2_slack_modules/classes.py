@@ -7,7 +7,7 @@ import json
 import i2_slack_modules
 
 
-class SlackResponse:
+class BotResponse:
     """
     A class used to represent a Slack Response
 

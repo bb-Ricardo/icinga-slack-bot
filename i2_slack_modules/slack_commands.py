@@ -66,9 +66,9 @@ def slack_command_ping(*args, **kwargs):
 
     Returns
     -------
-    SlackResponse: pong answer
+    BotResponse: pong answer
     """
-    return SlackResponse(
+    return BotResponse(
             text="pong :table_tennis_paddle_and_ball:"
     )
 
@@ -89,12 +89,12 @@ def reset_conversation(slack_user_id=None, conversations=None, *args, **kwargs):
 
     Returns
     -------
-    SlackResponse: response if acton was successful
+    BotResponse: response if acton was successful
     """
 
     if slack_user_id is not None and conversations is not None and conversations.get(slack_user_id) is not None:
         del conversations[slack_user_id]
-        return SlackResponse(text="Your conversation has been reset.")
+        return BotResponse(text="Your conversation has been reset.")
 
     return None
 
@@ -120,13 +120,13 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
 
     Returns
     -------
-    SlackResponse: with command result
+    BotResponse: with command result
     """
 
     # parse slack message and determine if this is a service or host status command
     # also strip off the command from the slack_message
 
-    response = SlackResponse()
+    response = BotResponse()
 
     display_just_unhandled_objects_for_default_query = True
 
@@ -306,10 +306,10 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
 
     Returns
     -------
-    SlackResponse: with response for Slack command
+    BotResponse: with response for Slack command
     """
 
-    response = SlackResponse(text="Status Overview")
+    response = BotResponse(text="Status Overview")
 
     # get icinga host objects
     i2_host_response = get_i2_object(config, "Host")
@@ -441,7 +441,7 @@ def slack_command_help(config=None, slack_message=None, *args, **kwargs):
 
     Returns
     -------
-    SlackResponse: with help text
+    BotResponse: with help text
     """
 
     # lowercase makes parsing easier
@@ -512,7 +512,7 @@ def slack_command_help(config=None, slack_message=None, *args, **kwargs):
             })
             help_color = "danger"
 
-    return SlackResponse(
+    return BotResponse(
         text="Bot help",
         blocks="*%s*" % help_headline,
         attachments={
@@ -553,7 +553,7 @@ def chat_with_user(
 
     Returns
     -------
-    SlackResponse: questions about the action, confirmations or errors
+    BotResponse: questions about the action, confirmations or errors
     """
 
     if slack_message is None:
@@ -769,7 +769,7 @@ def chat_with_user(
             response_text = "What do you want to set a downtime for?"
 
         conversations[slack_user_id] = this_conversation
-        return SlackResponse(text=response_text)
+        return BotResponse(text=response_text)
 
     # no objects found based on filter
     if this_conversation.filter_result is None:
@@ -785,7 +785,7 @@ def chat_with_user(
 
         this_conversation.filter = None
         conversations[slack_user_id] = this_conversation
-        return SlackResponse(text=response_text)
+        return BotResponse(text=response_text)
 
     # ask for not parsed start time
     if this_conversation.command == "DOWNTIME" and this_conversation.start_date is None:
@@ -799,7 +799,7 @@ def chat_with_user(
                             % this_conversation.start_date_parsing_failed
 
         conversations[slack_user_id] = this_conversation
-        return SlackResponse(text=response_text)
+        return BotResponse(text=response_text)
 
     # ask for not parsed end date
     if this_conversation.end_date is None:
@@ -818,7 +818,7 @@ def chat_with_user(
                             % this_conversation.end_date_parsing_failed
 
         conversations[slack_user_id] = this_conversation
-        return SlackResponse(text=response_text)
+        return BotResponse(text=response_text)
 
     if this_conversation.end_date and this_conversation.end_date != -1 and \
             this_conversation.end_date - 60 < datetime.now().timestamp():
@@ -830,7 +830,7 @@ def chat_with_user(
         this_conversation.end_date = None
         conversations[slack_user_id] = this_conversation
 
-        return SlackResponse(text=response_text)
+        return BotResponse(text=response_text)
 
     if this_conversation.command == "DOWNTIME" and this_conversation.start_date > this_conversation.end_date:
         logging.debug("Start date is after end date for downtime. Ask user again for start date.")
@@ -841,13 +841,13 @@ def chat_with_user(
         this_conversation.start_date = None
         conversations[slack_user_id] = this_conversation
 
-        return SlackResponse(text=response_text)
+        return BotResponse(text=response_text)
 
     if this_conversation.description is None:
         logging.debug("Description not set, asking for it")
 
         conversations[slack_user_id] = this_conversation
-        return SlackResponse(text="Please add a comment.")
+        return BotResponse(text="Please add a comment.")
 
     # now we seem to have all information and ask user if that's what the user wants
     if not this_conversation.confirmed:
@@ -883,7 +883,7 @@ def chat_with_user(
             confirmation["Comment"] = this_conversation.description
             confirmation["Objects"] = ""
 
-            response = SlackResponse(text="Confirm your action")
+            response = BotResponse(text="Confirm your action")
 
             confirmation_fields = list()
             for title, value in confirmation.items():
@@ -909,7 +909,7 @@ def chat_with_user(
 
     if this_conversation.canceled:
         del conversations[slack_user_id]
-        return SlackResponse(text="Ok, action has been canceled!")
+        return BotResponse(text="Ok, action has been canceled!")
 
     if this_conversation.confirmed:
 
@@ -981,7 +981,7 @@ def chat_with_user(
         if i2_error:
             return slack_error_response(header="Icinga request error", error_message=i2_error)
 
-        return SlackResponse(text=success_message)
+        return BotResponse(text=success_message)
 
     return None
 
@@ -1003,7 +1003,7 @@ def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
 
     Returns
     -------
-    SlackResponse: questions about the action, confirmations or errors
+    BotResponse: questions about the action, confirmations or errors
     """
 
     i2_status = get_i2_status(config, "")
@@ -1025,7 +1025,7 @@ def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
             if component["name"] == icingaapplication["component_name"]:
                 icingaapplication["data"] = component["status"]["icingaapplication"]["app"]
 
-    status_reply = SlackResponse()
+    status_reply = BotResponse()
     status_color = "good"
 
     missing_data = []

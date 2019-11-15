@@ -18,7 +18,7 @@ from datetime import datetime
 import certifi
 import slack
 
-from i2_slack_modules.classes import SlackResponse
+from i2_slack_modules.classes import BotResponse
 from i2_slack_modules.icinga_connection import RequestResponse
 from i2_slack_modules.common import (
     parse_command_line,
@@ -101,7 +101,7 @@ async def handle_command(slack_message, slack_user_id=None):
 
     Returns
     -------
-    SlackResponse: with response for Slack command
+    BotResponse: with response for Slack command
     """
 
     response = None
@@ -147,7 +147,7 @@ async def handle_command(slack_message, slack_user_id=None):
 
     # we didn't understand the message
     if not response:
-        response = SlackResponse(text=default_response_text)
+        response = BotResponse(text=default_response_text)
 
     return response
 
@@ -223,7 +223,7 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
         the Slack client handle to use
     channel: str
         Slack channel to post message to
-    slack_response: SlackResponse
+    slack_response: BotResponse
         Slack response object
 
     Returns
@@ -296,7 +296,7 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
 
         response = __do_post(slack_response.text, slack_response.blocks, slack_response.dump_attachments())
         """
-        if isinstance(slack_response, SlackResponse):
+        if isinstance(slack_response, BotResponse):
         else:
             message can be sent like this with message builder classes
             unfortunately it causes to many log messages

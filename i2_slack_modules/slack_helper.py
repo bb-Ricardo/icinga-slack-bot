@@ -5,7 +5,7 @@
 
 from . import plural, slack_max_block_text_length
 from .common import enum
-from .classes import SlackResponse
+from .classes import BotResponse
 
 
 def get_web2_slack_url(host, service=None, web2_url=""):
@@ -62,7 +62,7 @@ def format_slack_response(config, object_type="Host", result_objects=None):
         returns a list of slack message blocks
     """
 
-    response = SlackResponse()
+    response = BotResponse()
     current_host = None
     service_list = list()
     response_objects = list()
@@ -177,7 +177,7 @@ def slack_error_response(header=None, fallback_text=None, error_message=None):
 
     Returns
     -------
-    SlackResponse: response with error message
+    BotResponse: response with error message
     """
 
     if header is None:
@@ -189,7 +189,7 @@ def slack_error_response(header=None, fallback_text=None, error_message=None):
     if error_message is None:
         error_message = "Encountered a bot internal error. Please ask your bot admin for help."
 
-    response = SlackResponse(text=fallback_text)
+    response = BotResponse(text=fallback_text)
     response.add_block("*%s*" % header)
     response.add_attachment(
         {
