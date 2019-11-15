@@ -27,6 +27,9 @@ def get_command_called(slack_message=None):
     dict, None: response with command dict if found
     """
 
+    # lowercase makes parsing easier
+    slack_message = slack_message.lower()
+
     command_starts_with = list()
 
     for command in implemented_commands:
@@ -129,6 +132,9 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
 
     command_start = None
     status_type = None
+
+    # lowercase makes parsing easier
+    slack_message = slack_message.lower()
 
     called_command = get_command_called(slack_message)
 
@@ -467,6 +473,9 @@ def slack_command_help(config=None, slack_message=None, *args, **kwargs):
     SlackResponse: with help text
     """
 
+    # lowercase makes parsing easier
+    slack_message = slack_message.lower()
+
     github_logo_url = "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
     fields = list()
     help_color = "#03A8F3"
@@ -602,9 +611,9 @@ def chat_with_user(
     # check or command
     if this_conversation.command is None:
         logging.debug("Command not set, parsing: %s" % " ".join(cma))
-        if cma[0].startswith("ack"):
+        if cma[0].lower().startswith("ack"):
             this_conversation.command = "ACK"
-        elif cma[0].startswith("dt") or cma[0].startswith("downtime"):
+        elif cma[0].lower().startswith("dt") or cma[0].lower().startswith("downtime"):
             this_conversation.command = "DOWNTIME"
         else:
             return None
@@ -625,7 +634,7 @@ def chat_with_user(
             filter_list.append(cma.pop(0))
 
             # use second word as well if present
-            if len(cma) == 1 or (len(cma) > 1 and cma[0] not in ["from", "until"]):
+            if len(cma) == 1 or (len(cma) > 1 and cma[0].lower() not in ["from", "until"]):
                 filter_list.append(cma.pop(0))
 
             logging.debug("Filter parsed: %s" % filter_list)
@@ -637,6 +646,7 @@ def chat_with_user(
     if this_conversation.filter and this_conversation.filter_result is None:
 
         logging.debug("Filter result list empty. Query Icinga for objects.")
+
         host_filter = list()
         service_filter = list()
         if this_conversation.command == "ACK":
@@ -704,6 +714,16 @@ def chat_with_user(
 
             logging.debug("Start date not set, parsing: %s" % " ".join(cma))
 
+            for index, item in enumerate(cma):
+                if item.lower() == "from":
+                    cma[index] = "from"
+                    break
+
+            for index, item in enumerate(cma):
+                if item.lower() == "until":
+                    cma[index] = "until"
+                    break
+
             if "from" in cma:
                 cma = cma[cma.index("from") + 1:]
 
@@ -737,10 +757,15 @@ def chat_with_user(
 
             logging.debug("End date not set, parsing: %s" % " ".join(cma))
 
+            for index, item in enumerate(cma):
+                if item.lower() == "until":
+                    cma[index] = "until"
+                    break
+
             if "until" in cma:
                 cma = cma[cma.index("until") + 1:]
 
-            if cma[0] in ["never", "infinite"]:
+            if cma[0].lower() in ["never", "infinite"]:
                 # add rest of message as description
                 this_conversation.end_date = -1
                 del cma[0]

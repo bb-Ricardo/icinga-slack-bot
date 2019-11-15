@@ -105,9 +105,6 @@ async def handle_command(slack_message, slack_user_id=None):
     if matches:
         slack_message = matches.group(2).strip()
 
-    # lowercase makes parsing easier
-    slack_message = slack_message.lower()
-
     called_command = get_command_called(slack_message)
 
     # special case to reset conversation
