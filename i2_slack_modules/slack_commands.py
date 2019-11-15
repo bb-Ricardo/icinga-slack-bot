@@ -269,7 +269,7 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
             problematic_text = ""
 
             if len(i2_filter_status) == 1 and \
-                    i2_filter_status[0] in ["host.state != HostUP", "service.state != ServiceOK"]:
+                    i2_filter_status[0] in ["host.state != 0", "service.state != ServiceOK"]:
                 problematic_text = "problematic "
 
             response.text = "No %s%s objects " % (problematic_text, status_type.lower())

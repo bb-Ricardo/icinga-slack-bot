@@ -373,7 +373,7 @@ def get_i2_filter(object_type="Host", slack_message=""):
     # get problem host/services if no filters are requested
     if len(filter_states) == 0 and "all" not in filter_options and len(filter_options) == 0:
         if object_type is "Host":
-            filter_states.append("host.state != HostUP")
+            filter_states.append("host.state != 0")
         else:
             filter_states.append("service.state != ServiceOK")
 
