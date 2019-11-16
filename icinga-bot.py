@@ -43,10 +43,10 @@ from i2_slack_modules.slack_commands import (
 from i2_slack_modules import slack_max_message_blocks, slack_max_message_text_length
 
 
-__version__ = "0.1.0"
-__version_date__ = "2019-07-03"
+__version__ = "0.2.0"
+__version_date__ = "2019-11-16"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
-__description__ = "Icinga2 Slack bot"
+__description__ = "Icinga2 Slack Bot"
 __license__ = "MIT"
 __url__ = "https://github.com/bb-Ricardo/icinga-slack-bot"
 

@@ -93,7 +93,8 @@ For further details check the [Icinga2 API documentation](https://icinga.com/doc
 
 ### Get Slack Bot Token
 [Here](https://www.fullstackpython.com/blog/build-first-slack-bot-python.html)
-you can find a quick and helpful example on how to acquire a slack bot API token
+you can find a quick and helpful example on how to acquire a slack bot API token.
+You can also use [this](contrib/icinga2_logo.png) icon to represent the bot in Slack properly.
 
 ## Configuration
 icinga-slack-bot comes with a default [config file](icinga-bot.ini.sample)
@@ -109,7 +110,7 @@ It can be used to interact with Icinga2 from your Slack client. It uses the
 Icinga2 API to get Host/Service status details. Simple status filters can be
 used to narrow down the returned status list.
 
-Version: 0.1.0 (2019-07-03)
+Version: 0.2.0 (2019-11-16)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -142,6 +143,9 @@ Following commands are currently implemented:
 >abort current action (ack/dt)
 * icinga status (is)
 >print current Icinga status details
+
+### Help command
+Each command also provides a detailed help `help <command>`
 
 ### Command status filter
 Following command filters are implemented
