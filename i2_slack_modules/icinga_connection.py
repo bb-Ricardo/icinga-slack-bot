@@ -9,7 +9,7 @@ import logging
 from icinga2api.client import Client, Icinga2ApiException
 from icinga2api.actions import Actions
 
-from . import host_states, service_states
+from .icinga_states import IcingaStates
 
 
 class RequestResponse:
@@ -328,37 +328,7 @@ def get_i2_filter(object_type="Host", slack_message=""):
     if slack_message.strip() is not "":
         filter_options = slack_message.split(" ")
 
-    # define valid state filter options
-    valid_filter_states = {
-        "up": {
-            "object_type": "Host",
-            "state_id": host_states.UP
-        },
-        "down": {
-            "object_type": "Host",
-            "state_id": host_states.DOWN
-        },
-        "unreachable": {
-            "object_type": "Host",
-            "state_id": host_states.UNREACHABLE
-        },
-        "ok": {
-            "object_type": "Service",
-            "state_id": service_states.OK
-        },
-        "warning": {
-            "object_type": "Service",
-            "state_id": service_states.WARNING
-        },
-        "critical": {
-            "object_type": "Service",
-            "state_id": service_states.CRITICAL
-        },
-        "unknown": {
-            "object_type": "Service",
-            "state_id": service_states.UNKNOWN
-        }
-    }
+    valid_filter_states = IcingaStates()
 
     # use a copy of filter_options to not remove items from current iteration
     for filter_option in list(filter_options):
@@ -374,13 +344,13 @@ def get_i2_filter(object_type="Host", slack_message=""):
         if filter_option == "crit":
             filter_option = "critical"
 
-        if valid_filter_states.get(filter_option):
-            this_filter_state = valid_filter_states.get(filter_option)
+        if valid_filter_states.name(filter_option):
+            this_filter_state = valid_filter_states.name(filter_option)
 
-            if object_type == this_filter_state.get("object_type"):
+            if object_type == this_filter_state.object:
                 filter_string = "%s.state == %d" % \
-                                (this_filter_state.get("object_type").lower(),
-                                 this_filter_state.get("state_id"))
+                                (this_filter_state.object.lower(),
+                                 this_filter_state.value)
 
                 if filter_string not in filter_states:
                     filter_states.append(filter_string)
@@ -394,10 +364,7 @@ def get_i2_filter(object_type="Host", slack_message=""):
     if (len(filter_states) == 0 and "all" not in filter_options and len(filter_options) == 0) or \
             "problems" in filter_options:
 
-        if object_type is "Host":
-            filter_states.append("host.state != 0")
-        else:
-            filter_states.append("service.state != ServiceOK")
+        filter_states.append("%s.state != 0" % object_type.lower())
 
     # remove all attribute from filter
     if "all" in filter_options:

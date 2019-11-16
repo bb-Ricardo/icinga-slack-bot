@@ -9,6 +9,7 @@ from .icinga_connection import *
 from .slack_helper import *
 from .classes import SlackConversation
 from .command_definition import implemented_commands
+from .icinga_states import IcingaStates
 
 max_messages_to_display_detailed_status = 4
 
@@ -133,6 +134,8 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     command_start = None
     status_type = None
 
+    icinga_states = IcingaStates()
+
     # lowercase makes parsing easier
     slack_message = slack_message.lower()
 
@@ -217,13 +220,11 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
                 if icinga_object.get("host_name"):
                     host_name = icinga_object.get("host_name")
                     service_name = icinga_object.get("name")
-                    states = service_states
-                    colors = enum("good", "warning", "danger", "#E066FF")
+                    this_state = icinga_states.value(icinga_object.get("state"), "Service")
                 else:
                     host_name = icinga_object.get("name")
                     service_name = None
-                    states = host_states
-                    colors = enum("good", "danger", "#BC1414")
+                    this_state = icinga_states.value(icinga_object.get("state"), "Host")
 
                 host_url = get_web2_slack_url(host_name, web2_url=config["icinga.web2_url"])
                 service_url = get_web2_slack_url(host_name, service_name, web2_url=config["icinga.web2_url"])
@@ -236,7 +237,7 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
                 object_fields = {
                     "Output": icinga_object.get("last_check_result").get("output"),
                     "Last State Change": ts_to_date(icinga_object.get("last_state_change")),
-                    "Status": states.reverse[icinga_object.get("state")],
+                    "Status": this_state.name,
                     "Acknowledged": yes_no(icinga_object.get("acknowledgement")),
                     "In Downtime": yes_no(icinga_object.get("downtime_depth"))
                 }
@@ -254,7 +255,7 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
 
                 response.add_attachment(
                     {
-                        "color": colors.reverse[int(icinga_object.get("state"))],
+                        "color": this_state.color,
                         "text": text,
                         "fields": fields
                     }
@@ -275,7 +276,7 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
             problematic_text = ""
 
             if len(i2_filter_status) == 1 and \
-                    i2_filter_status[0] in ["host.state != 0", "service.state != ServiceOK"]:
+                    i2_filter_status[0] in ["host.state != 0", "service.state != 0"]:
                 problematic_text = "problematic "
 
             response.text = "No %s%s objects " % (problematic_text, status_type.lower())

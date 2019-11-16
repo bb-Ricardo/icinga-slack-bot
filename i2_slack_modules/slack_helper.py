@@ -4,8 +4,8 @@
 #
 
 from . import plural, slack_max_block_text_length
-from .common import enum
 from .classes import BotResponse
+from .icinga_states import IcingaStates
 
 
 def get_web2_slack_url(host, service=None, web2_url=""):
@@ -67,14 +67,9 @@ def format_slack_response(config, object_type="Host", result_objects=None):
     service_list = list()
     response_objects = list()
     num_results = 0
+    icinga_states = IcingaStates()
 
     if result_objects and len(result_objects) != 0:
-
-        # set state emoji
-        if object_type is "Host":
-            object_emojies = enum(":white_check_mark:", ":red_circle:", ":octagonal_sign:")
-        else:
-            object_emojies = enum(":white_check_mark:", ":warning:", ":red_circle:", ":question:")
 
         # append an "end marker" to avoid code redundancy
         result_objects.append({"last_object": True})
@@ -90,7 +85,7 @@ def format_slack_response(config, object_type="Host", result_objects=None):
                     break
 
                 text = "{state_emoji} {url}: {output}".format(
-                    state_emoji=object_emojies.reverse[int(result_object.get("state"))],
+                    state_emoji=icinga_states.value(result_object.get("state"), object_type).icon,
                     url=get_web2_slack_url(result_object.get("name"), web2_url=config["icinga.web2_url"]),
                     output=last_check.get("output")
                 )
@@ -120,7 +115,7 @@ def format_slack_response(config, object_type="Host", result_objects=None):
                 service_text = "&gt;{state_emoji} {url}: {output}"
 
                 service_text = service_text.format(
-                    state_emoji=object_emojies.reverse[result_object.get("state")],
+                    state_emoji=icinga_states.value(result_object.get("state"), object_type).icon,
                     url=get_web2_slack_url(current_host, result_object.get("name"), web2_url=config["icinga.web2_url"]),
                     output=last_check.get("output")
                 )

@@ -63,7 +63,7 @@ cd icinga-slack-bot
 docker build -t icinga-bot .
 ```
 
-Copy the config from the [example](icinga-bot.ini.sample) to ```ìcinga-bot.ini``` and edit
+Copy the config from the [example](icinga-bot.ini.sample) to ```icinga-bot.ini``` and edit
 the settings.
 
 Now you should be able to run the image with following command
