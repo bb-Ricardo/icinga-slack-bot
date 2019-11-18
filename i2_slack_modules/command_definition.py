@@ -3,6 +3,20 @@
 # define and describe implemented commands
 #
 
+# need import here as they will be called on whatever is defined in command_definition command_handlers
+# noinspection PyUnresolvedReferences
+from .slack_commands import (
+    slack_command_ping,
+    reset_conversation,
+    run_icinga_status_query,
+    get_icinga_status_overview,
+    slack_command_help,
+    chat_with_user,
+    get_icinga_daemon_status
+)
+import logging
+from typing import Callable, Tuple, Optional
+
 implemented_commands = [
     {
         "name": "help",
@@ -173,3 +187,139 @@ implemented_commands = [
         "command_handler": "get_icinga_daemon_status"
     }
 ]
+
+
+class BotCommands:
+    """
+    A class used to represent all implemented bot commands and
+    will return all properties on each command if requested.
+
+    This will represent the list 'implemented_commands' as
+    a class and each command as a attribute.
+    """
+
+    class _SingleCommand:
+        """
+        This subclass meant to hold a single bot command
+        and turns a command dict into an object with
+        attributes defined in command dict keys
+        """
+        def __init__(self, dictionary: dict) -> None:
+            """Constructor"""
+            for key in dictionary:
+                setattr(self, key, dictionary[key])
+
+        def __repr__(self) -> str:
+            return str(self.__dict__)
+
+        def split_message(self, slack_message: str) -> Tuple[Optional[str], Optional[str]]:
+            """
+            This method will split a Slack message into the command part
+            and the rest of the message.
+
+            "host status Web nginx" -> ("host status", "Web nginx")
+            "hs" -> ("hs", "")
+
+            Parameters
+            ----------
+            slack_message : string
+                the Slack command which will be parsed
+
+            Returns
+            -------
+            tuple: response with a tuple of two strings
+                ("command parsed", "rest of slack_message")
+            """
+
+            command_string_identified = None
+            slack_message_without_command = None
+
+            command_starts_with = [self.name]
+
+            if self.shortcut:
+                if isinstance(self.shortcut, list):
+                    command_starts_with.extend(self.shortcut)
+                elif isinstance(self.shortcut, str):
+                    command_starts_with.append(self.shortcut)
+                else:
+                    logging.error("Error parsing \"implemented_commands\". "
+                                  "Command (%s) shortcut must be a string or a list" % self.name)
+
+            # iterate over possible command starts and return if match was found
+            for command_start in command_starts_with:
+                if slack_message.lower() == command_start.lower() or \
+                        slack_message.lower().startswith(command_start.lower() + " "):
+
+                    command_string_identified = slack_message[0:len(command_start)]
+                    slack_message_without_command = slack_message[len(command_start) + 1:]
+                    break
+
+            return command_string_identified, slack_message_without_command
+
+        def strip_command(self, slack_message: str) -> str:
+            """
+            This method will return the message part of a Slack message
+            without the command
+
+            Parameters
+            ----------
+            slack_message : string
+                the Slack command which will be parsed
+
+            Returns
+            -------
+            str: the message without the command
+            """
+
+            _, message = self.split_message(slack_message)
+            return message
+
+        def get_command_handler(self) -> Callable:
+            """
+            This method will return the callable function for
+            a bot command, if found.
+
+            Returns
+            -------
+            Callable: command handler function
+            """
+            try:
+                return globals()[self.command_handler]
+            except KeyError:
+                logging.error("command_handler function '%s' for command '%s' not found in global scope" %
+                              (self.command_handler, self.name))
+            except AttributeError:
+                logging.error("command_handler for command '%s' not defined in command_definition.py" % self.name)
+
+    def __init__(self) -> None:
+        """
+        Iterate over the list of dictionaries (implemented_commands)
+        and set each command name as attribute with _SingleCommand as value
+        """
+        for command in implemented_commands:
+            setattr(self, command.get("name").replace(" ", "_"), self._SingleCommand(command))
+
+    def get_command_called(self, slack_message: str) -> _SingleCommand:
+        """
+        return the command object for a slack_message
+
+        Parameters
+        ----------
+        slack_message : string
+            the Slack command which will be parsed
+
+        Returns
+        -------
+        dict: response with command object if found
+        """
+        for command in self:
+            command_part, _ = command.split_message(slack_message)
+            if command_part:
+                return command
+
+    def __repr__(self) -> str:
+        return str(self.__dict__)
+
+    def __iter__(self) -> _SingleCommand:
+        for command in self.__dict__:
+            yield getattr(self, command)

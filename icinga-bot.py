@@ -27,19 +27,8 @@ from i2_slack_modules.common import (
     do_error_exit,
     my_own_function_name
 )
+from i2_slack_modules.command_definition import BotCommands
 from i2_slack_modules.slack_helper import slack_error_response
-# need import here as they will be called on whatever is defined in command_definition command_handlers
-# noinspection PyUnresolvedReferences
-from i2_slack_modules.slack_commands import (
-    get_command_called,
-    slack_command_ping,
-    reset_conversation,
-    run_icinga_status_query,
-    get_icinga_status_overview,
-    slack_command_help,
-    chat_with_user,
-    get_icinga_daemon_status
-)
 from i2_slack_modules import slack_max_message_blocks, slack_max_message_text_length
 
 
@@ -108,42 +97,51 @@ async def handle_command(slack_message, slack_user_id=None):
 
     default_response_text = "I didn't understand the command. Please use `help` for more details."
 
+    # strip any mention "strings" from beginning of message
     matches = re.search(mention_regex, slack_message)
     if matches:
         slack_message = matches.group(2).strip()
 
-    called_command = get_command_called(slack_message)
+    bot_commands = BotCommands()
+    called_command = bot_commands.get_command_called(slack_message)
+
+    """
+    If you wonder why the bot_commands object gets passed on to the function here:
+    This is to avoid circular imports between command_definition and slack_commands.
+    It's probably not the best solution but couldn't come up with anything better.
+    """
+    command_handler_args = {
+        "config": config,
+        "conversations": conversations,
+        "bot_commands": bot_commands,
+        "slack_message": slack_message,
+        "slack_user_id": slack_user_id,
+        "slack_user_data": user_info
+    }
 
     # special case to reset conversation
-    if called_command is not None and called_command["name"] == "reset":
-        response = globals()[called_command["command_handler"]](
-            slack_user_id=slack_user_id,
-            conversations=conversations
-        )
+    if called_command is not None and called_command.name == "reset":
+        response = called_command.get_command_handler(**command_handler_args)
 
-    if response is None and called_command and called_command["name"] != "reset":
+    # continue with conversion if there is one ongoing
+    if response is None and conversations.get(slack_user_id):
+        this_command_handler = conversations[slack_user_id].command.get_command_handler()
+        # try to chat with user
+        response = this_command_handler(**command_handler_args)
 
-        logging.debug("Received '%s' command" % called_command.get("name"))
+    # any regular command which is not reset
+    if response is None and called_command and called_command.name != "reset":
 
-        command_handler = None
-        try:
-            command_handler = globals()[called_command["command_handler"]]
-        except KeyError:
-            logging.error("command_handler for command '%s' not defined in command_definition.py" %
-                          called_command["name"])
-            response = slack_error_response()
+        logging.debug("Received '%s' command" % called_command.name)
+
+        command_handler = called_command.get_command_handler()
 
         if command_handler:
-            response = command_handler(
-                config=config,
-                conversations=conversations,
-                slack_message=slack_message,
-                slack_user_id=slack_user_id,
-                slack_user_data=user_info)
-
-    if response is None and conversations.get(slack_user_id):
-        # try to chat with user
-        response = chat_with_user(config, conversations, slack_message, slack_user_id, user_info)
+            response = command_handler(**command_handler_args)
+        else:
+            logging.error("command_handler for command '%s' not defined in command_definition.py" %
+                          called_command.name)
+            response = slack_error_response()
 
     # we didn't understand the message
     if not response:
@@ -345,7 +343,9 @@ if __name__ == "__main__":
     # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
-    status_reply = get_icinga_daemon_status(config=config, startup=True)
+    # get command handler and call it to get startup message
+    icinga_status_command = BotCommands().get_command_called("icinga status").get_command_handler()
+    status_reply = icinga_status_command(config=config, startup=True)
 
     # message about start
     client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)

@@ -71,15 +71,15 @@ class IcingaStates:
         and turns a state dict into an object with
         attributes defined in state dict keys
         """
-        def __init__(self, dictionary: dict):
+        def __init__(self, dictionary: dict) -> None:
             """Constructor"""
             for key in dictionary:
                 setattr(self, key, dictionary[key])
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return str(self.__dict__)
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Iterate over the list of dictionaries (icinga_state_types)
         and set each state name as attribute with _SingleState as value
@@ -103,9 +103,9 @@ class IcingaStates:
         -------
         _SingleState: with the state searched for
         """
-        for state, state_attr in self.__dict__.items():
-            if state_attr.value == state_value and state_attr.object == object_type:
-                return getattr(self, state)
+        for state in self:
+            if state.value == state_value and state.object == object_type:
+                return state
 
     def name(self, name: str) -> _SingleState:
         """
@@ -125,5 +125,9 @@ class IcingaStates:
         except AttributeError:
             pass
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self.__dict__)
+
+    def __iter__(self) -> _SingleState:
+        for state in self.__dict__:
+            yield getattr(self, state)

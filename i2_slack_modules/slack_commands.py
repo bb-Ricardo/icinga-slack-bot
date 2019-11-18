@@ -8,51 +8,9 @@ from .common import *
 from .icinga_connection import *
 from .slack_helper import *
 from .classes import SlackConversation
-from .command_definition import implemented_commands
 from .icinga_states import IcingaStates
 
 max_messages_to_display_detailed_status = 4
-
-
-def get_command_called(slack_message=None):
-    """
-    return the command dict for a slack_message
-
-    Parameters
-    ----------
-    slack_message : string
-        the Slack command which will be parsed
-
-    Returns
-    -------
-    dict, None: response with command dict if found
-    """
-
-    # lowercase makes parsing easier
-    slack_message = slack_message.lower()
-
-    command_starts_with = list()
-
-    for command in implemented_commands:
-        name = command.get("name")
-        shortcut = command.get("shortcut")
-        if name is None:
-            logging.error("Command name undefined. Check 'command_definition.py' for command with undefined name!")
-        else:
-            command_starts_with.append(name)
-        if shortcut:
-            if isinstance(shortcut, list):
-                command_starts_with.extend(shortcut)
-            elif isinstance(shortcut, str):
-                command_starts_with.append(shortcut)
-            else:
-                logging.error("Command shortcut must be a string or a list")
-
-        for command_start in command_starts_with:
-            if slack_message.startswith(command_start):
-                return command
-
-    return None
 
 
 # noinspection PyUnusedLocal
@@ -101,7 +59,7 @@ def reset_conversation(slack_user_id=None, conversations=None, *args, **kwargs):
 
 
 # noinspection PyUnusedLocal
-def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
+def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, *args, **kwargs):
     """
     Query Icinga2 to get host/service status based on Slack command
 
@@ -139,30 +97,16 @@ def run_icinga_status_query(config=None, slack_message=None, *args, **kwargs):
     # lowercase makes parsing easier
     slack_message = slack_message.lower()
 
-    called_command = get_command_called(slack_message)
+    called_command = bot_commands.get_command_called(slack_message)
 
-    # determine if command handler is actually called for this function
-    if called_command["command_handler"] == my_own_function_name():
-        if slack_message.startswith(called_command["name"]):
-            command_start = called_command["name"]
-        elif called_command["shortcut"] is not None:
-            if isinstance(called_command["shortcut"], list):
-                for shortcut in called_command["shortcut"]:
-                    if slack_message.startswith(shortcut):
-                        command_start = shortcut
-            else:
-                if slack_message.startswith(called_command["shortcut"]):
-                    command_start = called_command["shortcut"]
-
-        if command_start is not None:
-            slack_message = slack_message[len(command_start):].strip()
-            status_type = called_command["status_type"]
-
-    if None in [command_start, status_type]:
-        logging.error("Function (%s) call failed. Unable to determine command_start or status_type" %
-                      my_own_function_name())
-
+    try:
+        status_type = called_command.status_type
+    except AttributeError:
+        logging.error("Unable to get attribute 'status_type' for command %s" % called_command.name)
         return slack_error_response()
+
+    # strip command from slack message
+    _, slack_message = called_command.split_message(slack_message)
 
     # take care of special request to get all problems and not just unhandled ones
     if slack_message.startswith("problems"):
@@ -392,7 +336,7 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
 
 
 # noinspection PyUnusedLocal
-def slack_command_help(config=None, slack_message=None, *args, **kwargs):
+def slack_command_help(config=None, slack_message=None, bot_commands=None, *args, **kwargs):
     """
     Return a short command description
 
@@ -410,30 +354,27 @@ def slack_command_help(config=None, slack_message=None, *args, **kwargs):
     BotResponse: with help text
     """
 
-    # lowercase makes parsing easier
-    slack_message = slack_message.lower()
-
     github_logo_url = "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
     fields = list()
     help_color = "#03A8F3"
     help_headline = None
 
     if slack_message is None or slack_message.strip() == "help":
-        for command in implemented_commands:
+        for command in bot_commands:
             command_shortcut = ""
-            if command["shortcut"] is not None:
-                if isinstance(command["shortcut"], list):
-                    command_shortcut = "|".join(command["shortcut"])
+            if command.shortcut is not None:
+                if isinstance(command.shortcut, list):
+                    command_shortcut = "|".join(command.shortcut)
                 else:
-                    command_shortcut = command["shortcut"]
+                    command_shortcut = command.shortcut
 
                 command_shortcut = " (%s)" % command_shortcut
 
             fields.append({
                 "title": "`<bot> %s%s`" % (
-                    command["name"], command_shortcut
+                    command.name, command_shortcut
                 ),
-                "value": command["short_description"]
+                "value": command.short_description
             })
 
         help_headline = "Following commands are implemented"
@@ -443,29 +384,29 @@ def slack_command_help(config=None, slack_message=None, *args, **kwargs):
     else:
         # user asked for detailed help
         requested_help_topic = slack_message[4:].strip()
-        requested_help_command = get_command_called(requested_help_topic)
+        requested_help_command = bot_commands.get_command_called(requested_help_topic)
 
         if requested_help_command:
-            help_headline = "Detailed help for command: %s" % requested_help_command["name"]
+            help_headline = "Detailed help for command: %s" % requested_help_command.name
 
             command_shortcut = "None"
-            if requested_help_command["shortcut"] is not None:
-                if isinstance(requested_help_command["shortcut"], list):
-                    command_shortcut = "`, `".join(requested_help_command["shortcut"])
+            if requested_help_command.shortcut is not None:
+                if isinstance(requested_help_command.shortcut, list):
+                    command_shortcut = "`, `".join(requested_help_command.shortcut)
                 else:
-                    command_shortcut = requested_help_command["shortcut"]
+                    command_shortcut = requested_help_command.shortcut
 
                 command_shortcut = "`%s`" % command_shortcut
 
             # fill fields
             fields.append({"title": "Full command",
-                           "value": "`%s`" % requested_help_command["name"],
+                           "value": "`%s`" % requested_help_command.name,
                            "short": False})
             fields.append({"title": "Shortcut",
                            "value": command_shortcut,
                            "short": False})
             fields.append({"title": "Detailed description",
-                           "value": requested_help_command["long_description"],
+                           "value": requested_help_command.long_description,
                            "short": False})
 
         if help_headline is None:
@@ -495,6 +436,7 @@ def slack_command_help(config=None, slack_message=None, *args, **kwargs):
 def chat_with_user(
         config=None,
         conversations=None,
+        bot_commands=None,
         slack_message=None,
         slack_user_id=None,
         slack_user_data=None,
@@ -543,14 +485,14 @@ def chat_with_user(
     # check or command
     if this_conversation.command is None:
         logging.debug("Command not set, parsing: %s" % " ".join(cma))
-        if cma[0].lower().startswith("ack"):
-            this_conversation.command = "ACK"
-        elif cma[0].lower().startswith("dt") or cma[0].lower().startswith("downtime"):
-            this_conversation.command = "DOWNTIME"
-        else:
+        this_conversation.command = bot_commands.get_command_called(slack_message)
+
+        if this_conversation.command.name not in ["acknowledge", "downtime"]:
             return None
 
-        logging.debug("Command parsed: %s" % this_conversation.command)
+        logging.debug("Command parsed: %s" % this_conversation.command.name)
+
+        conversations[slack_user_id] = this_conversation
 
         del cma[0]
 
@@ -581,7 +523,7 @@ def chat_with_user(
 
         host_filter = list()
         service_filter = list()
-        if this_conversation.command == "ACK":
+        if this_conversation.command.name == "acknowledge":
             host_filter = ["host.state != 0"]
             service_filter = ["service.state != 0"]
 
@@ -611,7 +553,7 @@ def chat_with_user(
             )
 
         # we can set a downtime for all objects no matter their state
-        if this_conversation.command == "DOWNTIME" and len(i2_result.response) > 0:
+        if this_conversation.command.name == "downtime" and len(i2_result.response) > 0:
 
             this_conversation.filter_result = i2_result.response
         else:
@@ -629,13 +571,13 @@ def chat_with_user(
         # save current conversation state if filter returned any objects
         if this_conversation.filter_result and len(this_conversation.filter_result) > 0:
             logging.debug("Found %d objects for command %s" %
-                          (len(this_conversation.filter_result), this_conversation.command))
+                          (len(this_conversation.filter_result), this_conversation.command.name))
 
             this_conversation.object_type = object_type
             conversations[slack_user_id] = this_conversation
 
     # parse start time information for downtime
-    if this_conversation.command == "DOWNTIME" and this_conversation.start_date is None:
+    if this_conversation.command.name == "downtime" and this_conversation.start_date is None:
 
         if len(cma) != 0:
 
@@ -729,7 +671,7 @@ def chat_with_user(
 
         logging.debug("Filter not set, asking for it")
 
-        if this_conversation.command == "ACK":
+        if this_conversation.command.name == "acknowledge":
             response_text = "What do you want acknowledge?"
         else:
             response_text = "What do you want to set a downtime for?"
@@ -743,7 +685,7 @@ def chat_with_user(
 
         logging.debug("Icinga2 object request returned empty, asking for a different filter")
 
-        if this_conversation.command == "ACK":
+        if this_conversation.command.name == "acknowledge":
             problematic = " problematic"
 
         response_text = "Sorry, I was not able to find any%s hosts or services for your search '%s'. Try again." \
@@ -754,7 +696,7 @@ def chat_with_user(
         return BotResponse(text=response_text)
 
     # ask for not parsed start time
-    if this_conversation.command == "DOWNTIME" and this_conversation.start_date is None:
+    if this_conversation.command.name == "downtime" and this_conversation.start_date is None:
 
         if not this_conversation.start_date_parsing_failed:
             logging.debug("Start date not set, asking for it")
@@ -774,7 +716,7 @@ def chat_with_user(
 
             logging.debug("End date not set, asking for it")
 
-            if this_conversation.command == "ACK":
+            if this_conversation.command.name == "acknowledge":
                 response_text = "When should the acknowledgement expire? Or never?"
             else:
                 response_text = "When should the downtime end?"
@@ -798,7 +740,7 @@ def chat_with_user(
 
         return BotResponse(text=response_text)
 
-    if this_conversation.command == "DOWNTIME" and this_conversation.start_date > this_conversation.end_date:
+    if this_conversation.command.name == "downtime" and this_conversation.start_date > this_conversation.end_date:
         logging.debug("Start date is after end date for downtime. Ask user again for start date.")
 
         response_text = "Sorry, start date '%s' can't be after and date '%s'. When should the downtime start?" % \
@@ -829,7 +771,7 @@ def chat_with_user(
         if not this_conversation.confirmation_sent:
 
             # get object type
-            if this_conversation.command == "DOWNTIME":
+            if this_conversation.command.name == "downtime":
                 command = "Downtime"
             else:
                 command = "Acknowledgement"
@@ -838,7 +780,7 @@ def chat_with_user(
                 "Command": command,
                 "Type": this_conversation.object_type
             }
-            if this_conversation.command == "DOWNTIME":
+            if this_conversation.command.name == "downtime":
                 confirmation["Start"] = ts_to_date(this_conversation.start_date)
                 confirmation["End"] = ts_to_date(this_conversation.end_date)
 
@@ -906,7 +848,7 @@ def chat_with_user(
         i2_error = None
         try:
 
-            if this_conversation.command == "DOWNTIME":
+            if this_conversation.command.name == "downtime":
 
                 logging.debug("Sending Downtime to Icinga2")
 
