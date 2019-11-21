@@ -238,7 +238,7 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
             logging.debug("Posting Slack message to channel '%s'" % channel)
 
             # noinspection PyUnresolvedReferences
-            this_response.response = handle.chat_postMessage(
+            this_response.text = handle.chat_postMessage(
                 channel=channel,
                 text=text[:slack_max_message_text_length],
                 blocks=blocks,
@@ -246,8 +246,8 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
             )
 
         except slack.errors.SlackApiError as e:
-            this_response.response = e.response
-            this_response.error = this_response.response.get("error")
+            this_response.text = e.response
+            this_response.error = this_response.text.get("error")
 
         except Exception as e:
             this_response.error = str(e)
@@ -298,7 +298,7 @@ def post_slack_message(handle=None, channel=None, slack_response=None):
         else:
             message can be sent like this with message builder classes
             unfortunately it causes to many log messages
-            response.response = handle.chat_postMessage(channel=channel, **slack_response.to_dict())
+            response.text = handle.chat_postMessage(channel=channel, **slack_response.to_dict())
         """
 
     if response.error:

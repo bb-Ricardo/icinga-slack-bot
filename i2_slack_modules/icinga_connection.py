@@ -17,12 +17,22 @@ class RequestResponse:
     A class used to hold responses for different kinds of requests
     """
 
+    data = list()
+    response = None
+    error = None
+
     def __init__(self,
                  response=None,
+                 text=None,
                  error=None):
 
-        self.response = response
+        if response:
+            self.data = response
+        self.text = text
         self.error = error
+
+    def __repr__(self):
+        return str(self.__dict__)
 
 
 class MyIcinga2Actions(Actions):
@@ -145,7 +155,7 @@ def get_i2_status(config=None, application=None):
     try:
         logging.debug("Requesting Icinga2 status for application: %s " % application)
 
-        response.response = i2_handle.status.list(application)
+        response.data = i2_handle.status.list(application)
 
     except Exception as e:
         response.error = str(e)
@@ -256,7 +266,7 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
     logging.debug("Used filter for Icinga2 query: %s" % i2_filters)
 
     try:
-        response.response = i2_handle.objects.list(object_type, attrs=list_attrs, filters=i2_filters)
+        response.data = i2_handle.objects.list(object_type=object_type, attrs=list_attrs, filters=i2_filters)
 
     except Icinga2ApiException as e:
         response.error = str(e)
@@ -267,10 +277,10 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
             response.error = "Error %s: %s" % (return_code, icinga_return.get("status"))
 
             if int(return_code) == 404:
-                response.response = "No match for %s" % filter_states
+                response.text = "No match for %s" % filter_states
                 if filter_names:
-                    response.response += " and %s" % filter_names
-                response.response += " found."
+                    response.text += " and %s" % filter_names
+                response.text += " found."
 
                 response.error = None
             pass
@@ -279,19 +289,19 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
         response.error = str(e)
         pass
 
-    if response.error is None and response.response is not None and isinstance(response.response, list):
+    if response.error is None and response.data is not None and isinstance(response.data, list):
         response_objects = list()
-        for response_object in response.response:
+        for response_object in response.data:
             response_objects.append(response_object.get("attrs"))
-        response.response = response_objects
+        response.data = response_objects
 
         # sort objects
         if object_type is "Host":
-            response.response = sorted(response.response, key=lambda k: k['name'])
+            response.data = sorted(response.data, key=lambda k: k['name'])
         else:
-            response.response = sorted(response.response, key=lambda k: (k['host_name'], k['name']))
+            response.data = sorted(response.data, key=lambda k: (k['host_name'], k['name']))
 
-        logging.debug("Icinga2 returned with %d results" % len(response.response))
+        logging.debug("Icinga2 returned with %d results" % len(response.data))
 
     if response.error:
         logging.error("Unable to query Icinga2 status: %s" % response.error)

@@ -48,7 +48,7 @@ def reset_conversation(slack_user_id=None, conversations=None, *args, **kwargs):
 
     Returns
     -------
-    BotResponse: response if acton was successful
+    BotResponse: response if action was successful
     """
 
     if slack_user_id is not None and conversations is not None and conversations.get(slack_user_id) is not None:
@@ -147,20 +147,20 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
             response = slack_error_response(header="Icinga request error", error_message=i2_response.error)
 
         # Just a String was returned
-        elif type(i2_response.response) is str:
+        elif i2_response.text:
             response.text = "Icinga status response"
-            response.add_block(i2_response.response)
+            response.add_block(i2_response.text)
 
         # show more detailed information if only a few objects are returned
-        elif len(i2_response.response) in list(range(1, (max_messages_to_display_detailed_status + 1))):
+        elif len(i2_response.data) in list(range(1, (max_messages_to_display_detailed_status + 1))):
 
             response.text = "Icinga status response"
             block_text = "Found %d matching %s%s" % \
-                         (len(i2_response.response), status_type.lower(), plural(len(i2_response.response)))
+                         (len(i2_response.data), status_type.lower(), plural(len(i2_response.data)))
 
             response.add_block(block_text)
 
-            for icinga_object in i2_response.response:
+            for icinga_object in i2_response.data:
                 if icinga_object.get("host_name"):
                     host_name = icinga_object.get("host_name")
                     service_name = icinga_object.get("name")
@@ -206,14 +206,14 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
                 )
 
         # the more condensed icinga_object list
-        elif len(i2_response.response) > 0:
+        elif len(i2_response.data) > 0:
 
             block_text = "Found %d matching %s%s" % \
-                         (len(i2_response.response), status_type.lower(), plural(len(i2_response.response)))
+                         (len(i2_response.data), status_type.lower(), plural(len(i2_response.data)))
 
             response.text = "Icinga status response"
             response.add_block(block_text)
-            response.add_block(format_slack_response(config, status_type, i2_response.response))
+            response.add_block(format_slack_response(config, status_type, i2_response.data))
 
         # the result returned empty
         else:
@@ -261,7 +261,7 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
     if i2_status.error:
         return slack_error_response(header="Icinga request error", error_message=i2_status.error)
 
-    data = i2_status.response["results"][0]["status"]
+    data = i2_status.data["results"][0]["status"]
 
     host_count = {
         "UP": data.get("num_hosts_up"),
@@ -533,7 +533,7 @@ def chat_with_user(
             object_type = "Host"
             i2_result = get_i2_object(config, object_type, host_filter, this_conversation.filter)
 
-            if i2_result.error is None and len(i2_result.response) == 0:
+            if i2_result.error is None and len(i2_result.data) == 0:
                 object_type = "Service"
                 i2_result = get_i2_object(config, object_type, service_filter, this_conversation.filter)
 
@@ -553,14 +553,14 @@ def chat_with_user(
             )
 
         # we can set a downtime for all objects no matter their state
-        if this_conversation.command.name == "downtime" and len(i2_result.response) > 0:
+        if this_conversation.command.name == "downtime" and len(i2_result.data) > 0:
 
-            this_conversation.filter_result = i2_result.response
+            this_conversation.filter_result = i2_result.data
         else:
 
             # only objects which are not acknowledged can be acknowledged
             ack_filter_result = list()
-            for result in i2_result.response:
+            for result in i2_result.data:
                 # only add results which are not acknowledged
                 if result.get("acknowledgement") == 0:
                     ack_filter_result.append(result)
@@ -926,7 +926,7 @@ def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
     }
 
     if not i2_status.error:
-        for component in i2_status.response.get("results"):
+        for component in i2_status.data.get("results"):
 
             if component["name"] == apilistener["component_name"]:
                 apilistener["data"] = component["status"]["api"]
