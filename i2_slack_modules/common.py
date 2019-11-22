@@ -8,6 +8,7 @@ import logging
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from datetime import datetime
 import inspect
+import re
 
 from ctparse import ctparse
 
@@ -353,3 +354,30 @@ def parse_relative_date(data_to_parse=None):
 def my_own_function_name():
     """returns the name of the function who called this function"""
     return inspect.currentframe().f_back.f_code.co_name
+
+
+def quoted_split(string_to_split, preserve_quotations=False):
+    """
+    Function to split string into list of words but preserves quoted
+    sub strings.
+
+    found here: https://stackoverflow.com/a/51560564
+
+    Parameters
+    ----------
+    string_to_split : string
+        the string to split
+    preserve_quotations : bool
+        determine if quote marks should be preserved or not
+
+    Returns
+    -------
+    list: splitted string as list
+    """
+
+    def strip_quotes(s):
+        if s and (s[0] == '"' or s[0] == "'") and s[0] == s[-1] and preserve_quotations is False:
+            return s[1:-1].replace('\\"', '"').replace("\\'", "'")
+        return s
+    return [strip_quotes(p)
+            for p in re.findall(r'"(?:\\.|[^"])*"|\'(?:\\.|[^\'])*\'|[^\s]+', string_to_split)]

@@ -10,6 +10,7 @@ from icinga2api.client import Client, Icinga2ApiException
 from icinga2api.actions import Actions
 
 from .icinga_states import IcingaStates
+from .common import quoted_split
 
 
 class RequestResponse:
@@ -216,6 +217,12 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
         i2_filters = '(' + ' || '.join(filter_states) + ')'
 
     if filter_names and len(filter_names) >= 1 and filter_names[0] is not "":
+
+        filter_names = quoted_split(string_to_split=" ".join(filter_names))
+
+        # escape double quotes
+        filter_names = [x.replace('"', '\\"') for x in filter_names]
+
         if i2_filters:
             i2_filters += " && "
         else:
@@ -336,7 +343,7 @@ def get_i2_filter(object_type="Host", slack_message=""):
     logging.debug("Start compiling Icinga2 filters for received message: %s" % slack_message)
 
     if slack_message.strip() is not "":
-        filter_options = slack_message.split(" ")
+        filter_options = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
     valid_filter_states = IcingaStates()
 

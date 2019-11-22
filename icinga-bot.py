@@ -121,7 +121,7 @@ async def handle_command(slack_message, slack_user_id=None):
 
     # special case to reset conversation
     if called_command is not None and called_command.name == "reset":
-        response = called_command.get_command_handler(**command_handler_args)
+        response = called_command.get_command_handler()(**command_handler_args)
 
     # continue with conversion if there is one ongoing
     if response is None and conversations.get(slack_user_id):

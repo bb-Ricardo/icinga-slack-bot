@@ -74,6 +74,8 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
         dictionary with items parsed from config file
     slack_message : string
         the Slack command which will be parsed
+    bot_commands: BotCommands
+        class with bot commands to avoid circular imports
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -106,7 +108,7 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
         return slack_error_response()
 
     # strip command from slack message
-    _, slack_message = called_command.split_message(slack_message)
+    slack_message = called_command.strip_command(slack_message)
 
     # take care of special request to get all problems and not just unhandled ones
     if slack_message.startswith("problems"):
@@ -346,6 +348,8 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
         dictionary with items parsed from config file
     slack_message : string
         the Slack command which will be parsed
+    bot_commands: BotCommands
+        class with bot commands to avoid circular imports
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -450,6 +454,8 @@ def chat_with_user(
         dictionary with items parsed from config file
     conversations: dict
         object to hold current state of conversation
+    bot_commands: BotCommands
+        class with bot commands to avoid circular imports
     slack_message : string
         slack message to parse
     slack_user_id : string
@@ -479,42 +485,56 @@ def chat_with_user(
 
     this_conversation = conversations.get(slack_user_id)
 
-    # split slack_message into an array (chat message array)
-    cma = slack_message.split(' ')
-
     # check or command
     if this_conversation.command is None:
-        logging.debug("Command not set, parsing: %s" % " ".join(cma))
+        logging.debug("Command not set, parsing: %s" % slack_message)
         this_conversation.command = bot_commands.get_command_called(slack_message)
 
         if this_conversation.command.name not in ["acknowledge", "downtime"]:
+            this_conversation.command = None
             return None
 
         logging.debug("Command parsed: %s" % this_conversation.command.name)
 
         conversations[slack_user_id] = this_conversation
 
-        del cma[0]
+        slack_message = this_conversation.command.strip_command(slack_message)
 
     # check for filter
     if this_conversation.filter is None:
-
-        if len(cma) != 0:
+        if len(quoted_split(string_to_split=slack_message)) != 0:
             # we got a filter
-            logging.debug("Filter not set, parsing: %s" % " ".join(cma))
+            logging.debug("Filter not set, parsing: %s" % slack_message)
 
-            # get first word after command as filter
-            filter_list = list()
-            filter_list.append(cma.pop(0))
+            index_string = " from"  # for downtime
+            if this_conversation.command.name == "acknowledge":
+                index_string = " until"
 
-            # use second word as well if present
-            if len(cma) == 1 or (len(cma) > 1 and cma[0].lower() not in ["from", "until"]):
-                filter_list.append(cma.pop(0))
+            #  everything left of the index string will be parsed as filter
+            if index_string in slack_message.lower():
+
+                # get end of filter list
+                end_of_filter_string = slack_message.lower().index(index_string)
+
+                filter_string = slack_message[:end_of_filter_string]
+
+                # strip the filter from the supplied string
+                slack_message = slack_message[end_of_filter_string:]
+            else:
+                # index string not found
+                # assuming the whole message is meant to be a filter
+                filter_string = slack_message
+                slack_message = ""
+
+            filter_list = quoted_split(string_to_split=filter_string, preserve_quotations=True)
 
             logging.debug("Filter parsed: %s" % filter_list)
 
             this_conversation.filter = filter_list
             conversations[slack_user_id] = this_conversation
+
+    # split slack_message into an array (chat message array)
+    cma = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
     # try to find objects based on filter
     if this_conversation.filter and this_conversation.filter_result is None:
