@@ -209,7 +209,9 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
             return RequestResponse(error="Unknown error while setting up Icinga2 connection")
 
     # default attributes to query
-    list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change']
+    list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change',
+                  'enable_active_checks', 'enable_event_handler', 'enable_flapping', 'enable_notifications',
+                  'enable_passive_checks']
 
     # add host_name to attribute list if services are requested
     if object_type is "Service":

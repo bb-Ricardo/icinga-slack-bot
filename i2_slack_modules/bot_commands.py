@@ -182,10 +182,15 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
 
                 object_fields = {
                     "Output": icinga_object.get("last_check_result").get("output"),
-                    "Last State Change": ts_to_date(icinga_object.get("last_state_change")),
+                    "Last state change": ts_to_date(icinga_object.get("last_state_change")),
                     "Status": this_state.name,
                     "Acknowledged": yes_no(icinga_object.get("acknowledgement")),
-                    "In Downtime": yes_no(icinga_object.get("downtime_depth"))
+                    "In downtime": yes_no(icinga_object.get("downtime_depth")),
+                    "Event handlers": enabled_disabled(icinga_object.get("enable_event_handler")),
+                    "Flap detection": enabled_disabled(icinga_object.get("enable_flapping")),
+                    "Active checks": enabled_disabled(icinga_object.get("enable_active_checks")),
+                    "Passive checks": enabled_disabled(icinga_object.get("enable_passive_checks")),
+                    "Notifications": enabled_disabled(icinga_object.get("enable_notifications")),
                 }
 
                 fields = list()

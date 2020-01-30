@@ -27,13 +27,13 @@ enable_disable_sub_commands = [
     },
     {
         "name": "host event handlers",
-        "icinga_attr_name": "enable_event_handlers",
+        "icinga_attr_name": "enable_event_handler",
         "object_type": "Host",
         "shortcut": "heh"
     },
     {
         "name": "service event handlers",
-        "icinga_attr_name": "enable_event_handlers",
+        "icinga_attr_name": "enable_event_handler",
         "object_type": "Service",
         "shortcut": "seh"
     },
