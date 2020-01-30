@@ -12,10 +12,104 @@ from .bot_commands import (
     get_icinga_status_overview,
     slack_command_help,
     chat_with_user,
-    get_icinga_daemon_status
+    get_icinga_daemon_status,
+    enable_disable_action
 )
 import logging
 from typing import Callable, Tuple, Optional
+
+enable_disable_sub_commands = [
+    {
+        "name": "event handlers global",
+        "icinga_attr_name": "enable_event_handlers",
+        "object_type": "global",
+        "shortcut": "ehg"
+    },
+    {
+        "name": "host event handlers",
+        "icinga_attr_name": "enable_event_handlers",
+        "object_type": "Host",
+        "shortcut": "heh"
+    },
+    {
+        "name": "service event handlers",
+        "icinga_attr_name": "enable_event_handlers",
+        "object_type": "Service",
+        "shortcut": "seh"
+    },
+    {
+        "name": "flap detection global",
+        "icinga_attr_name": "enable_flapping",
+        "object_type": "global",
+        "shortcut": "fdg"
+    },
+    {
+        "name": "host flap detection",
+        "icinga_attr_name": "enable_flapping",
+        "object_type": "Host",
+        "shortcut": "hfd"
+    },
+    {
+        "name": "service flap detection",
+        "icinga_attr_name": "enable_flapping",
+        "object_type": "Service",
+        "shortcut": "sfd"
+    },
+    {
+        "name": "host checks global",
+        "icinga_attr_name": "enable_host_checks",
+        "object_type": "global",
+        "shortcut": "hcg"
+    },
+    {
+        "name": "service checks global",
+        "icinga_attr_name": "enable_service_checks",
+        "object_type": "global",
+        "shortcut": "scg"
+    },
+    {
+        "name": "active host checks",
+        "icinga_attr_name": "enable_active_checks",
+        "object_type": "Host",
+        "shortcut": "ahc"
+    },
+    {
+        "name": "active service checks",
+        "icinga_attr_name": "enable_active_checks",
+        "object_type": "Service",
+        "shortcut": "asc"
+    },
+    {
+        "name": "passive host checks",
+        "icinga_attr_name": "enable_passive_checks",
+        "object_type": "Host",
+        "shortcut": "phc"
+    },
+    {
+        "name": "passive service checks",
+        "icinga_attr_name": "enable_passive_checks",
+        "object_type": "Service",
+        "shortcut": "psc"
+    },
+    {
+        "name": "notifications global",
+        "icinga_attr_name": "enable_notifications",
+        "object_type": "global",
+        "shortcut": "ng"
+    },
+    {
+        "name": "host notifications",
+        "icinga_attr_name": "enable_notifications",
+        "object_type": "Host",
+        "shortcut": "hn"
+    },
+    {
+        "name": "service notifications",
+        "icinga_attr_name": "enable_notifications",
+        "object_type": "Service",
+        "shortcut": "sn"
+    }
+]
 
 implemented_commands = [
     {
@@ -171,7 +265,7 @@ implemented_commands = [
     {
         "name": "reset",
         "shortcut": "abort",
-        "short_description": "abort current action (ack/dt)",
+        "short_description": "abort current action (ack/dt/ena/disa)",
         "long_description": "If you are performing an action and want to abort it, you can use this command\n"
                             "to stop the interaction/conversation with the bot.",
         "command_handler": "reset_conversation"
@@ -185,6 +279,24 @@ implemented_commands = [
                             "notifications or event handlers. In a clustered environment it will report "
                             "if all endpoints are connected.",
         "command_handler": "get_icinga_daemon_status"
+    },
+    {
+        "name": "enable",
+        "shortcut": "ena",
+        "short_description": "enable an action",
+        "long_description": "This command will enable active or passive checks, notifications or event handlers"
+                            "globally, hosts or services.",
+        "command_handler": "enable_disable_action",
+        "sub_commands": enable_disable_sub_commands
+    },
+    {
+        "name": "disable",
+        "shortcut": "disa",
+        "short_description": "disable an action",
+        "long_description": "This command will disable active or passive checks, notifications or event handlers"
+                            "globally, hosts or services.",
+        "command_handler": "enable_disable_action",
+        "sub_commands": enable_disable_sub_commands
     }
 ]
 
@@ -207,7 +319,12 @@ class BotCommands:
         def __init__(self, dictionary: dict) -> None:
             """Constructor"""
             for key in dictionary:
-                setattr(self, key, dictionary[key])
+
+                # parse sub_commands as own BotCommands
+                if key == "sub_commands":
+                    setattr(self, key, BotCommands(dictionary[key]))
+                else:
+                    setattr(self, key, dictionary[key])
 
         def __repr__(self) -> str:
             return str(self.__dict__)
@@ -291,12 +408,28 @@ class BotCommands:
             except AttributeError:
                 logging.error("command_handler for command '%s' not defined in command_definition.py" % self.name)
 
-    def __init__(self) -> None:
+        def has_sub_commands(self) -> bool:
+            """
+            This method will return True or False depending
+            if command has sub_commands or not.
+
+            Returns
+            -------
+            Bool: True if sub_commands are defined
+            """
+            if self.__dict__.get("sub_commands"):
+                return True
+
+            return False
+
+    def __init__(self, command_list: list = None) -> None:
         """
         Iterate over the list of dictionaries (implemented_commands)
         and set each command name as attribute with _SingleCommand as value
         """
-        for command in implemented_commands:
+        if command_list is None:
+            command_list = implemented_commands
+        for command in command_list:
             setattr(self, command.get("name").replace(" ", "_"), self._SingleCommand(command))
 
     def get_command_called(self, slack_message: str) -> _SingleCommand:

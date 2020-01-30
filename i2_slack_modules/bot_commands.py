@@ -363,7 +363,7 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
     help_color = "#03A8F3"
     help_headline = None
 
-    if slack_message is None or slack_message.strip() == "help":
+    if slack_message is None or slack_message.strip().lower() == "help":
         for command in bot_commands:
             command_shortcut = ""
             if command.shortcut is not None:
@@ -412,6 +412,41 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
             fields.append({"title": "Detailed description",
                            "value": requested_help_command.long_description,
                            "short": False})
+
+            if requested_help_command.sub_commands:
+
+                sub_commands_list = list()
+                for sub_command in requested_help_command.sub_commands:
+                    sub_command_shortcut = ""
+                    if sub_command.shortcut is not None:
+                        if isinstance(sub_command.shortcut, list):
+                            sub_command_shortcut = "|".join(sub_command.shortcut)
+                        else:
+                            sub_command_shortcut = sub_command.shortcut
+
+                        sub_command_shortcut = " (%s)" % sub_command_shortcut
+
+                    sub_commands_list.append("*Name*: %s%s" % (sub_command.name, sub_command_shortcut))
+
+                    example_suffix = ""
+                    if sub_command.object_type == "Host":
+                        example_suffix = " <host>"
+                    elif sub_command.object_type == "Service":
+                        example_suffix = " <host/service>"
+
+                    sub_commands_list.append("`<bot> %s %s%s`" % (
+                            requested_help_command.name, sub_command.name, example_suffix)
+                    )
+
+                fields.append({"title": "Available sub commands",
+                               "value": "\n".join(sub_commands_list),
+                               "short": False})
+
+                fields.append({"title": "Example of shortcut usage",
+                               "value": "%s notifications for webserver services\n"
+                                        "`<bot> %s sn webserver`" % (
+                                            requested_help_command.name, requested_help_command.shortcut),
+                               "short": False})
 
         if help_headline is None:
             # Command doesn't seem to be implemented
@@ -1031,3 +1066,288 @@ def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
     )
 
     return status_reply
+
+
+# noinspection PyTypeChecker
+# noinspection PyUnusedLocal
+def enable_disable_action(
+        config=None,
+        conversations=None,
+        bot_commands=None,
+        slack_message=None,
+        slack_user_id=None,
+        *args, **kwargs):
+    """
+    Have a conversation with the user about the attribute the user wants to enable/disable
+
+    Parameters
+    ----------
+    config : dict
+        dictionary with items parsed from config file
+    conversations: dict
+        object to hold current state of conversation
+    bot_commands: BotCommands
+        class with bot commands to avoid circular imports
+    slack_message : string
+        slack message to parse
+    slack_user_id : string
+        slack user id
+    args, kwargs: None
+        used to hold additional args which are just ignored
+
+    Returns
+    -------
+    BotResponse: questions about the action, confirmations or errors
+    """
+
+    if slack_message is None:
+        logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_message", my_own_function_name()))
+
+    if slack_user_id is None:
+        logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_user_id", my_own_function_name()))
+
+    if slack_message is None or slack_user_id is None:
+        return slack_error_response()
+
+    # New conversation
+    if conversations.get(slack_user_id) is None:
+        conversations[slack_user_id] = SlackConversation(slack_user_id)
+
+    this_conversation = conversations.get(slack_user_id)
+
+    # check or command
+    if this_conversation.command is None:
+        logging.debug("Command not set, parsing: %s" % slack_message)
+        this_conversation.command = bot_commands.get_command_called(slack_message)
+
+        # see if checking for sub_commands works better here
+        if this_conversation.command.name not in ["enable", "disable"]:
+            this_conversation.command = None
+            return None
+
+        logging.debug("Command parsed: %s" % this_conversation.command.name)
+
+        conversations[slack_user_id] = this_conversation
+
+        slack_message = this_conversation.command.strip_command(slack_message)
+
+    # check for sub command
+    if this_conversation.sub_command is None:
+        if len(slack_message) != 0:
+            # we got a filter
+            logging.debug("Sub command not set, parsing: %s" % slack_message)
+
+            if this_conversation.command.has_sub_commands():
+                this_conversation.sub_command = \
+                    this_conversation.command.sub_commands.get_command_called(slack_message)
+
+                if this_conversation.sub_command:
+                    slack_message = this_conversation.sub_command.strip_command(slack_message)
+                    logging.debug("Sub command parsed: %s" % this_conversation.sub_command.name)
+
+            conversations[slack_user_id] = this_conversation
+
+    # check for filter
+    if this_conversation.sub_command is not None and \
+            this_conversation.sub_command.object_type != "global" and this_conversation.filter is None:
+        if len(slack_message) != 0:
+
+            filter_list = quoted_split(string_to_split=slack_message, preserve_quotations=True)
+
+            logging.debug("Filter parsed: %s" % filter_list)
+
+            this_conversation.filter = filter_list
+            conversations[slack_user_id] = this_conversation
+
+    # try to find objects based on filter
+    if this_conversation.filter and this_conversation.filter_result is None:
+
+        logging.debug("Filter result list empty. Query Icinga for objects.")
+
+        # query hosts and services
+        i2_result = get_i2_object(config, this_conversation.sub_command.object_type, None, this_conversation.filter)
+
+        # encountered Icinga request issue
+        if i2_result.error:
+            logging.debug("No icinga objects found for filter: %s" % this_conversation.filter)
+
+            return slack_error_response(
+                header="Icinga request error while trying to find matching hosts/services",
+                fallback_text="Icinga Error",
+                error_message=i2_result.error
+            )
+
+        this_conversation.filter_result = i2_result.data
+        this_conversation.filter_used = i2_result.filter
+
+        # save current conversation state if filter returned any objects
+        if this_conversation.filter_result and len(this_conversation.filter_result) > 0:
+            logging.debug("Found %d objects to %s %s for" %
+                          (len(this_conversation.filter_result),
+                           this_conversation.command.name,
+                           this_conversation.sub_command.name))
+
+            conversations[slack_user_id] = this_conversation
+
+    # ask for sub command
+    if this_conversation.sub_command is None:
+
+        logging.debug("Sub command not set, asking for it")
+
+        response_text = \
+            "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
+            this_conversation.command.name
+
+        conversations[slack_user_id] = this_conversation
+        return BotResponse(text=response_text)
+
+    # ask for missing info
+    if this_conversation.sub_command.object_type != "global" and this_conversation.filter is None:
+
+        logging.debug("Filter not set, asking for it")
+
+        response_text = "For which object do you want to %s %s?" % (
+            this_conversation.command.name,
+            this_conversation.sub_command.name)
+
+        conversations[slack_user_id] = this_conversation
+        return BotResponse(text=response_text)
+
+    # no objects found based on filter
+    if this_conversation.sub_command.object_type != "global" and this_conversation.filter_result is None:
+
+        logging.debug("Icinga2 object request returned empty, asking for a different filter")
+
+        response_text = "Sorry, I was not able to find any hosts or services for your search '%s'. Try again." \
+                        % " ".join(this_conversation.filter)
+
+        this_conversation.filter = None
+        conversations[slack_user_id] = this_conversation
+        return BotResponse(text=response_text)
+
+    # now we seem to have all information and ask user if that's what the user wants
+    if not this_conversation.confirmed:
+
+        if this_conversation.confirmation_sent:
+            if slack_message.startswith("y") or slack_message.startswith("Y"):
+                this_conversation.confirmed = True
+            elif slack_message.startswith("n") or slack_message.startswith("N"):
+                this_conversation.canceled = True
+            else:
+                this_conversation.confirmation_sent = False
+
+        if not this_conversation.confirmation_sent:
+
+            confirmation = {
+                "Command": "%s %s" % (this_conversation.command.name, this_conversation.sub_command.name)
+            }
+
+            if this_conversation.sub_command.object_type != "global" and this_conversation.filter_result is not None:
+                confirmation.update({"Objects": ""})
+
+            response = BotResponse(text="Confirm your action")
+
+            confirmation_fields = list()
+
+            for title, value in confirmation.items():
+                confirmation_fields.append(">*%s*: %s" % (title, value))
+
+            if this_conversation.sub_command.object_type != "global" and this_conversation.filter_result is not None:
+
+                for i2_object in this_conversation.filter_result[0:10]:
+                    if this_conversation.sub_command.object_type == "Host":
+                        name = i2_object.get("name")
+                    else:
+                        name = '%s - %s' % (i2_object.get("host_name"), i2_object.get("name"))
+
+                    confirmation_fields.append(u">\t• %s" % name)
+
+                if len(this_conversation.filter_result) > 10:
+                    confirmation_fields.append(">\t... and %d more" % (len(this_conversation.filter_result) - 10))
+
+            response.add_block("\n".join(confirmation_fields))
+            response.add_block("Do you want to confirm this action?:")
+
+            this_conversation.confirmation_sent = True
+            conversations[slack_user_id] = this_conversation
+
+            return response
+
+    if this_conversation.canceled:
+        del conversations[slack_user_id]
+        return BotResponse(text="Ok, action has been canceled!")
+
+    if this_conversation.confirmed:
+
+        # delete conversation history
+        del conversations[slack_user_id]
+
+        i2_handle: object
+        i2_handle, i2_error = setup_icinga_connection(config)
+
+        if not i2_handle:
+            if i2_error is not None:
+                error_message = i2_error
+            else:
+                error_message = "Unknown error while setting up Icinga2 connection"
+
+            return slack_error_response(header="Icinga request error", error_message=error_message)
+
+        success_message = None
+        i2_error = None
+
+        enable = True
+        if this_conversation.command.name == "disable":
+            enable = False
+
+        logging.debug("Sending command '%s %s' to Icinga2" %
+                      (this_conversation.command.name, this_conversation.sub_command.name))
+
+        try:
+
+            if this_conversation.sub_command.object_type == "global":
+
+                success_message = "Successfully %sd %s!" % \
+                                  (this_conversation.command.name, this_conversation.sub_command.name)
+
+                i2_response = i2_handle.objects.update(
+                    object_type="IcingaApplication",
+                    name="app", attrs={"attrs": {this_conversation.sub_command.icinga_attr_name: enable}}
+                )
+
+            else:
+
+                success_message = "Successfully %sd %s for %s!" % \
+                                  (this_conversation.command.name,
+                                   this_conversation.sub_command.name,
+                                   " ".join(this_conversation.filter))
+
+                # noinspection PyProtectedMember
+                url_path = '{}/{}'.format(
+                    i2_handle.objects.base_url_path,
+                    i2_handle.objects._convert_object_type(this_conversation.sub_command.object_type)
+                )
+
+                logging.debug(url_path)
+
+                payload = {
+                    'attrs': {
+                        this_conversation.sub_command.icinga_attr_name: enable
+                    },
+                    'filter': this_conversation.filter_used
+                }
+
+                # noinspection PyProtectedMember
+                i2_response = i2_handle.objects._request('POST', url_path, payload)
+
+        except Exception as e:
+            i2_error = str(e)
+            logging.error("Unable to perform Icinga2 object update: %s" % i2_error)
+            pass
+
+        if i2_error:
+            return slack_error_response(header="Icinga request error", error_message=i2_error)
+
+        return BotResponse(text=success_message)
+
+    return None

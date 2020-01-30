@@ -19,6 +19,7 @@ class RequestResponse:
     """
 
     data = list()
+    filter = None
     response = None
     error = None
 
@@ -31,6 +32,7 @@ class RequestResponse:
             self.data = response
         self.text = text
         self.error = error
+        self.filter = filter
 
     def __repr__(self):
         return str(self.__dict__)
@@ -309,6 +311,10 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
             response.data = sorted(response.data, key=lambda k: (k['host_name'], k['name']))
 
         logging.debug("Icinga2 returned with %d results" % len(response.data))
+
+        # add used filters to response
+        if i2_filters is not None and len(i2_filters) > 0:
+            response.filter = i2_filters
 
     if response.error:
         logging.error("Unable to query Icinga2 status: %s" % response.error)

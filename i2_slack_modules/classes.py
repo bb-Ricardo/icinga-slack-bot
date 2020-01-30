@@ -126,6 +126,8 @@ class SlackConversation:
     confirmed = False
     confirmation_sent = False
     canceled = False
+    sub_command = None
+    filter_used = None
 
     def __init__(self,
                  user_id=None):
