@@ -13,12 +13,11 @@ import logging
 import asyncio
 import re
 import ssl as ssl_lib
-from datetime import datetime
 
 import certifi
 import slack
 
-from i2_slack_modules.classes import BotResponse
+from i2_slack_modules.classes import BotResponse, SlackUsers
 from i2_slack_modules.icinga_connection import RequestResponse
 from i2_slack_modules.common import (
     parse_command_line,
@@ -48,8 +47,6 @@ __url__ = "https://github.com/bb-Ricardo/icinga-slack-bot"
 default_log_level = "INFO"
 default_config_file_path = "./icinga-bot.ini"
 
-user_data_cache_timeout = 1800
-
 #################
 #
 #   internal vars
@@ -60,7 +57,7 @@ mention_regex = "^<@(|[WU].+?)>(.*)"
 args = None
 config = None
 conversations = dict()
-user_info = dict()
+user_info = SlackUsers()
 
 
 #################
@@ -179,22 +176,8 @@ async def message(**payload):
 
         logging.debug("Received new Slack message: %s" % data.get("text"))
 
-        # check if user data cache expired
-        if user_info.get(data.get("user")) and \
-                user_info[data.get("user")]["ts_created"] + user_data_cache_timeout < datetime.now().timestamp():
-
-            logging.debug("User data cache for user '%s' expired." % data.get("user"))
-            del user_info[data.get("user")]
-
-        # fetch user data
-        if user_info.get(data.get("user")) is None:
-            logging.debug("No cached user data found. Fetching from Slack.")
-            slack_user_data = await web_client.users_info(user=data.get("user"))
-
-            if slack_user_data.get("user"):
-                logging.debug("Successfully fetched user data.")
-                user_info[data.get("user")] = slack_user_data.get("user")
-                user_info[data.get("user")]["ts_created"] = datetime.now().timestamp()
+        # noinspection PyTypeChecker
+        user_info.set_web_handle(web_client)
 
         # parse command
         response = await handle_command(data.get("text"), data.get("user"))
@@ -207,6 +190,8 @@ async def message(**payload):
                 error_message=slack_api_response.error)
 
             post_slack_message(web_client, channel_id, error_message)
+
+        await user_info.fetch_slack_user_info(data.get("user"))
 
     return
 
@@ -345,14 +330,14 @@ if __name__ == "__main__":
 
     # get command handler and call it to get startup message
     icinga_status_command = BotCommands().get_command_called("icinga status").get_command_handler()
-    status_reply = icinga_status_command(config=config, startup=True)
 
     # message about start
     client = slack.WebClient(token=config["slack.bot_token"], ssl=slack_ssl_context)
 
-    post_response = post_slack_message(client, config["slack.default_channel"], status_reply)
+    post_response = post_slack_message(client, config["slack.default_channel"],
+                                       icinga_status_command(config=config, startup=True))
 
-    del client, status_reply
+    del client
 
     if post_response.error:
         do_error_exit("Error while posting startup message to slack (%s): %s" %

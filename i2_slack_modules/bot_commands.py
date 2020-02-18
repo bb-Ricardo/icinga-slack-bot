@@ -500,8 +500,8 @@ def chat_with_user(
         slack message to parse
     slack_user_id : string
         slack user id
-    slack_user_data: dict
-        dictionary with user information pulled from Slack
+    slack_user_data: SlackUsers
+        a SlackUsers object with user information pulled from Slack
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -906,6 +906,14 @@ def chat_with_user(
 
         success_message = None
         i2_error = None
+
+        # get username to add as comment
+        this_user_info = slack_user_data.get_user_info(slack_user_id)
+
+        author_name = "Anonymous Slack user"
+        if this_user_info is not None and this_user_info.get("real_name"):
+            author_name = this_user_info.get("real_name")
+
         try:
 
             if this_conversation.command.name == "downtime":
@@ -917,7 +925,7 @@ def chat_with_user(
                 i2_response = i2_handle.actions.schedule_downtime(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')',
-                    author=slack_user_data.get(slack_user_id).get("real_name"),
+                    author=author_name,
                     comment=this_conversation.description,
                     start_time=this_conversation.start_date,
                     end_time=this_conversation.end_date,
@@ -935,7 +943,7 @@ def chat_with_user(
                 i2_response = i2_handle.actions.acknowledge_problem(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')',
-                    author=slack_user_data.get(slack_user_id).get("real_name"),
+                    author=author_name,
                     comment=this_conversation.description,
                     expiry=None if this_conversation.end_date == -1 else this_conversation.end_date,
                     sticky=True

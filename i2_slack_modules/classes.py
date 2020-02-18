@@ -4,7 +4,11 @@
 #
 
 import json
+import logging
+from datetime import datetime
 import i2_slack_modules
+from i2_slack_modules.common import my_own_function_name
+from slack import WebClient
 
 
 class BotResponse:
@@ -132,5 +136,114 @@ class SlackConversation:
     def __init__(self,
                  user_id=None):
         self.user_id = user_id
+
+
+class SlackUsers:
+    """
+    A class used to fetch and hold information about
+    the slack user talking to this bot.
+    """
+
+    # user_data_cache_timeout defines after how many seconds
+    # user date should be fetched again
+    user_data_cache_timeout = 1800
+
+    web_handle = None
+    user_data = dict()
+
+    def get_user_info(self, user_id: str) -> dict:
+        """
+        Returns a slack user data dict for user_id
+
+        Parameters
+        ----------
+        user_id: str
+            user id to return data for
+
+        Returns
+        -------
+        dict: slack user data dict
+        """
+
+        return self.user_data.get(user_id)
+
+    def set_web_handle(self, web_handle: WebClient) -> None:
+        """
+        Set web handle to use for user data requests
+
+        Parameters
+        ----------
+        web_handle: WebClient
+            slack web handle object which is part of a slack message
+        """
+
+        if web_handle is None:
+            logging.error("%: web_handle not provided.", my_own_function_name())
+            return
+
+        self.web_handle = web_handle
+
+    def is_user_data_expired(self, user_id: str) -> (bool, None):
+        """
+        Returns True or False depending if seconds passed between
+        last fetch of user data and now is greater then
+        user_data_cache_timeout
+
+        Parameters
+        ----------
+        user_id: str
+            user id to return data for
+
+        Returns
+        -------
+        bool, None: True if cache expired otherwise False
+        """
+
+        if user_id is None:
+            logging.error("%: user_id not provided.", my_own_function_name())
+            return
+
+        this_user = self.get_user_info(user_id)
+
+        if this_user is not None and \
+                this_user["ts_created"] + self.user_data_cache_timeout >= datetime.now().timestamp():
+            return False
+
+        logging.debug("User data cache for user '%s' expired." % user_id)
+
+        return True
+
+    async def fetch_slack_user_info(self, user_id: str) -> None:
+        """
+        Fetch user data for user_id from Slack
+
+        Parameters
+        ----------
+        user_id: str
+            user id to return data for
+
+        """
+
+        if self.web_handle is None:
+            logging.error("%: function called before attribute web_handle set.", my_own_function_name())
+            return
+
+        if user_id is None:
+            logging.error("%: user_id not provided.", my_own_function_name())
+            return
+
+        if self.is_user_data_expired(user_id) is False:
+            return
+
+        logging.debug("No cached user data found. Fetching from Slack.")
+
+        slack_user_data = await self.web_handle.users_info(user=user_id)
+
+        if slack_user_data is not None and slack_user_data.get("user"):
+            logging.debug("Successfully fetched user data.")
+            self.user_data[user_id] = slack_user_data.get("user")
+            self.user_data[user_id]["ts_created"] = datetime.now().timestamp()
+        else:
+            logging.error("Unable to fetched user data.")
 
 # EOF
