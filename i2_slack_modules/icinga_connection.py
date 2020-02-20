@@ -176,7 +176,7 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
     config : dict
         dictionary with items parsed from config file
     object_type : str
-        the object type to request (Host or Service)
+        the object type to request (Host, Service, HostComment, ServiceComment, HostDowntime or ServiceDowntime)
     filter_states : list, optional
         a list of object states to filter for, use function "get_i2_filter"
         to generate this list (default is None)
@@ -209,9 +209,15 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
             return RequestResponse(error="Unknown error while setting up Icinga2 connection")
 
     # default attributes to query
-    list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change',
-                  'enable_active_checks', 'enable_event_handler', 'enable_flapping', 'enable_notifications',
-                  'enable_passive_checks']
+    if "Comment" in object_type:
+        list_attrs = ['author', 'text', 'host_name', 'service_name', "entry_time", "expire_time", "type"]
+    elif "Downtime" in object_type:
+        list_attrs = ['author', 'comment', 'host_name', 'service_name', "entry_time", "start_time", "end_time",
+                      'fixed', 'duration', "type"]
+    else:
+        list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change',
+                      'enable_active_checks', 'enable_event_handler', 'enable_flapping', 'enable_notifications',
+                      'enable_passive_checks']
 
     # add host_name to attribute list if services are requested
     if object_type is "Service":
@@ -232,13 +238,14 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
         else:
             i2_filters = ""
 
-        if object_type is "Host":
+        if "Host" in object_type:
 
             hosts = list()
             for host in filter_names:
                 hosts.append('match("*%s*", host.name)' % host)
             i2_filters += '(' + ' || '.join(hosts) + ')'
-        else:
+
+        elif "Service" in object_type:
 
             # if user provided just one name we search for hosts and services with this name
             if len(filter_names) == 1:
@@ -276,8 +283,15 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
 
     logging.debug("Used filter for Icinga2 query: %s" % i2_filters)
 
+    if "Comment" in object_type:
+        requested_object_type = "Comment"
+    elif "Downtime" in object_type:
+        requested_object_type = "Downtime"
+    else:
+        requested_object_type = object_type
+
     try:
-        response.data = i2_handle.objects.list(object_type=object_type, attrs=list_attrs, filters=i2_filters)
+        response.data = i2_handle.objects.list(object_type=requested_object_type, attrs=list_attrs, filters=i2_filters)
 
     except Icinga2ApiException as e:
         response.error = str(e)
@@ -309,8 +323,10 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
         # sort objects
         if object_type is "Host":
             response.data = sorted(response.data, key=lambda k: k['name'])
-        else:
+        elif object_type is "Service":
             response.data = sorted(response.data, key=lambda k: (k['host_name'], k['name']))
+        elif "Comment" in object_type or "Downtime" in object_type:
+            response.data = sorted(response.data, key=lambda k: k['entry_time'], reverse=True)
 
         logging.debug("Icinga2 returned with %d results" % len(response.data))
 

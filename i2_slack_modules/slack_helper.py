@@ -40,7 +40,7 @@ def get_web2_slack_url(host, service=None, web2_url=""):
     return url
 
 
-def format_slack_response(config, object_type="Host", result_objects=None):
+def format_slack_response(config, object_type="Host", result_objects=None, comment_downtime_list=None):
     """Format a slack response
 
     The objects will compiled into Slack message blocks.
@@ -55,6 +55,8 @@ def format_slack_response(config, object_type="Host", result_objects=None):
         the object type to request (Host or Service)
     result_objects : list
         a list of objects to include in the Slack message
+    comment_downtime_list: list
+        a list of comments and downtimes which returned for the results , add speech bubble, zzz and handled
 
     Returns
     -------
@@ -78,15 +80,41 @@ def format_slack_response(config, object_type="Host", result_objects=None):
         for result_object in result_objects:
             last_check = result_object.get("last_check_result")
 
+            # get comments for this object
+            if object_type is "Host":
+                object_comment_downtime_list = \
+                    [item for item in comment_downtime_list
+                     if item["host_name"] == result_object.get("name") and item["service_name"] == ""]
+            else:
+                object_comment_downtime_list = \
+                    [item for item in comment_downtime_list
+                     if item["host_name"] == result_object.get("host_name") and
+                        item["service_name"] == result_object.get("name")]
+
+            # add speech bubble if object has comments
+            append_to_title = ""
+            if len([item for item in object_comment_downtime_list if item['type'] == 'Comment']) > 0:
+                append_to_title += " :speech_balloon:"
+
+            # add zzz if object has downtime
+            if len([item for item in object_comment_downtime_list if item['type'] == 'Downtime']) > 0:
+                append_to_title += " :zzz:"
+
+            # change attachment color and add hint to status text if object is taken care of
+            if result_object.get("state") is not None and result_object.get("state") > 0:
+                if result_object.get("acknowledgement") > 1 or result_object.get("downtime_depth") > 1:
+                    append_to_title += " (handled)"
+
             if object_type is "Host":
 
                 # stop if we found the "end marker"
                 if result_object.get("last_object"):
                     break
 
-                text = "{state_emoji} {url}: {output}".format(
+                text = "{state_emoji} {url}{additional_info}: {output}".format(
                     state_emoji=icinga_states.value(result_object.get("state"), object_type).icon,
                     url=get_web2_slack_url(result_object.get("name"), web2_url=config["icinga.web2_url"]),
+                    additional_info=append_to_title,
                     output=last_check.get("output")
                 )
 
@@ -112,11 +140,12 @@ def format_slack_response(config, object_type="Host", result_objects=None):
 
                 current_host = result_object.get("host_name")
 
-                service_text = "&gt;{state_emoji} {url}: {output}"
+                service_text = "&gt;{state_emoji} {url}{additional_info}: {output}"
 
                 service_text = service_text.format(
                     state_emoji=icinga_states.value(result_object.get("state"), object_type).icon,
                     url=get_web2_slack_url(current_host, result_object.get("name"), web2_url=config["icinga.web2_url"]),
+                    additional_info=append_to_title,
                     output=last_check.get("output")
                 )
 
