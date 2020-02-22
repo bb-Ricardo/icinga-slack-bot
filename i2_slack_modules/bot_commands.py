@@ -206,7 +206,7 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
 
                 # change attachment color and add hint to status text if object is taken care of
                 if icinga_object.get("state") > 0:
-                    if icinga_object.get("acknowledgement") > 1 or icinga_object.get("downtime_depth") > 1:
+                    if icinga_object.get("acknowledgement") >= 1 or icinga_object.get("downtime_depth") >= 1:
                         text += " (handled)"
                         attachment_color = None
 

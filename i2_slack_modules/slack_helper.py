@@ -102,7 +102,7 @@ def format_slack_response(config, object_type="Host", result_objects=None, comme
 
             # change attachment color and add hint to status text if object is taken care of
             if result_object.get("state") is not None and result_object.get("state") > 0:
-                if result_object.get("acknowledgement") > 1 or result_object.get("downtime_depth") > 1:
+                if result_object.get("acknowledgement") >= 1 or result_object.get("downtime_depth") >= 1:
                     append_to_title += " (handled)"
 
             if object_type is "Host":
