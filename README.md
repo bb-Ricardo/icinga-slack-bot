@@ -10,7 +10,7 @@ used to narrow down the returned status list.
 * python >= 3.6
 * python-slackclient >= 2.0.0
 * certifi >= 2018
-* icinga2api >= 0.6.0
+* icinga2apic >= 0.7.1
 * ctparse >= 0.0.38
 * Icinga2 instance with API feature enabled
 
