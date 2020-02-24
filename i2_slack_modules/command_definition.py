@@ -285,6 +285,26 @@ implemented_commands = [
         "command_handler": "chat_with_user"
     },
     {
+        "name": "reschedule",
+        "shortcut": "rs",
+        "short_description": "reschedule a host/service check",
+        "long_description": "This command will start a dialog to reschedule "
+                            "a service or host check. This can be started with this command "
+                            "and the bot will ask for a host/service filter:\n"
+                            "At the end the bot will ask you for a confirmation which can "
+                            "be answered with `yes` or just `y` or `no`. "
+                            "After that the bot will report if the action was successful or not.\n"
+                            "*SORT CUT:*\n"
+                            "It's also possible to short cut and just issue the "
+                            "action in one command:\n"
+                            "`rs my-server ntp`\n"
+                            "*STRUCTURE:*\n"
+                            "`rs <host> <service>` or\n"
+                            "`rs <host> <host>` or\n"
+                            "`rs <service>`\n",
+        "command_handler": "chat_with_user"
+    },
+    {
         "name": "reset",
         "shortcut": "abort",
         "short_description": "abort current action (ack/dt/ena/disa)",

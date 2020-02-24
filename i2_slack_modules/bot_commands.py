@@ -590,7 +590,7 @@ def chat_with_user(
         logging.debug("Command not set, parsing: %s" % slack_message)
         this_conversation.command = bot_commands.get_command_called(slack_message)
 
-        if this_conversation.command.name not in ["acknowledge", "downtime", "comment"]:
+        if this_conversation.command.name not in ["acknowledge", "downtime", "comment", "reschedule"]:
             this_conversation.command = None
             return None
 
@@ -606,8 +606,10 @@ def chat_with_user(
             # we got a filter
             logging.debug("Filter not set, parsing: %s" % slack_message)
 
-            index_string = "from"  # for downtime
-            if this_conversation.command.name == "acknowledge":
+            index_string = None
+            if this_conversation.command.name == "downtime":
+                index_string = "from"
+            elif this_conversation.command.name == "acknowledge":
                 index_string = "until"
             elif this_conversation.command.name == "comment":
                 index_string = "with"
@@ -615,7 +617,7 @@ def chat_with_user(
             split_slack_message = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
             #  everything left of the index string will be parsed as filter
-            if index_string in [s.lower() for s in split_slack_message]:
+            if index_string is not None and index_string in [s.lower() for s in split_slack_message]:
 
                 index = [s.lower() for s in split_slack_message].index(index_string)
 
@@ -784,7 +786,8 @@ def chat_with_user(
 
             conversations[slack_user_id] = this_conversation
 
-    if this_conversation.description is None:
+    if this_conversation.command.name in ["acknowledge", "downtime", "comment"] and \
+            this_conversation.description is None:
 
         if len(cma) != 0 and len("".join(cma).strip()) != 0:
             logging.debug("Description not set, parsing: %s" % " ".join(cma))
@@ -806,6 +809,8 @@ def chat_with_user(
             response_text = "What do you want to set a downtime for?"
         elif this_conversation.command.name == "comment":
             response_text = "What do you want to add a comment to?"
+        elif this_conversation.command.name == "comment":
+            response_text = "What do you want to reschedule?"
 
         conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
@@ -882,7 +887,8 @@ def chat_with_user(
 
         return BotResponse(text=response_text)
 
-    if this_conversation.description is None:
+    if this_conversation.command.name in ["acknowledge", "downtime", "comment"] and \
+            this_conversation.description is None:
         logging.debug("Description not set, asking for it")
 
         conversations[slack_user_id] = this_conversation
@@ -1031,6 +1037,17 @@ def chat_with_user(
                     filters='(' + ' || '.join(filter_list) + ')',
                     author=author_name,
                     comment=this_conversation.description
+                )
+
+            elif this_conversation.command.name == "reschedule":
+                logging.debug("Sending Comment to Icinga2")
+
+                success_message = "Successfully rescheduled %s check%s!" % \
+                                  (this_conversation.object_type, plural(len(filter_list)))
+
+                i2_response = i2_handle.actions.reschedule_check(
+                    object_type=this_conversation.object_type,
+                    filters='(' + ' || '.join(filter_list) + ')'
                 )
 
         except Exception as e:
