@@ -305,6 +305,28 @@ implemented_commands = [
         "command_handler": "chat_with_user"
     },
     {
+        "name": "send notification",
+        "shortcut": "sn",
+        "short_description": "send a costum host/service notification",
+        "long_description": "This command will start a dialog to send a custom "
+                            "service or host notification. This can be started with this command "
+                            "and the bot will ask questions about the details on following order:\n"
+                            "*1.* host/service filter\n"
+                            "*2.* the comment which should be sent\n"
+                            "At the end the bot will ask you for a confirmation which can "
+                            "be answered with `yes` or just `y` or `no`. "
+                            "After that the bot will report if the action was successful or not.\n"
+                            "*SORT CUT:*\n"
+                            "It's also possible to short cut and just issue the "
+                            "action in one command:\n"
+                            "`sn my-server ntp with NTP source currently unavailable`\n"
+                            "*STRUCTURE:*\n"
+                            "`sn <host> <service> with <comment>` or\n"
+                            "`sn <host> <host> with <comment>` or\n"
+                            "`sn <service> with <comment>`\n",
+        "command_handler": "chat_with_user"
+    },
+    {
         "name": "reset",
         "shortcut": "abort",
         "short_description": "abort current action (ack/dt/ena/disa)",

@@ -570,6 +570,45 @@ def chat_with_user(
     BotResponse: questions about the action, confirmations or errors
     """
 
+    # set properties for available action commands
+    action_commands = {
+        "acknowledge": {
+            "filter_end_marker": "until",
+            "need_start_date": False,
+            "need_end_date": True,
+            "need_comment": True,
+            "filter_question": "What do you want acknowledge?"
+        },
+        "downtime": {
+            "filter_end_marker": "from",
+            "need_start_date": True,
+            "need_end_date": True,
+            "need_comment": True,
+            "filter_question": "What do you want to set a downtime for?"
+        },
+        "comment": {
+            "filter_end_marker": "which",
+            "need_start_date": False,
+            "need_end_date": False,
+            "need_comment": True,
+            "filter_question": "What do you want to add a comment to?"
+        },
+        "reschedule": {
+            "filter_end_marker": None,
+            "need_start_date": False,
+            "need_end_date": False,
+            "need_comment": False,
+            "filter_question": "What do you want to reschedule?"
+        },
+        "send notification": {
+            "filter_end_marker": "which",
+            "need_start_date": False,
+            "need_end_date": False,
+            "need_comment": True,
+            "filter_question": "What do you want to notifications for?"
+        }
+    }
+
     if slack_message is None:
         logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_message", my_own_function_name()))
 
@@ -590,7 +629,7 @@ def chat_with_user(
         logging.debug("Command not set, parsing: %s" % slack_message)
         this_conversation.command = bot_commands.get_command_called(slack_message)
 
-        if this_conversation.command.name not in ["acknowledge", "downtime", "comment", "reschedule"]:
+        if this_conversation.command.name not in action_commands.keys():
             this_conversation.command = None
             return None
 
@@ -606,13 +645,7 @@ def chat_with_user(
             # we got a filter
             logging.debug("Filter not set, parsing: %s" % slack_message)
 
-            index_string = None
-            if this_conversation.command.name == "downtime":
-                index_string = "from"
-            elif this_conversation.command.name == "acknowledge":
-                index_string = "until"
-            elif this_conversation.command.name == "comment":
-                index_string = "with"
+            index_string = action_commands.get(this_conversation.command.name).get("filter_end_marker")
 
             split_slack_message = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
@@ -625,7 +658,7 @@ def chat_with_user(
                 filter_list = split_slack_message[0:index]
 
                 # strip index string from slack message on comments
-                if this_conversation.command.name == "comment":
+                if index_string == "with":
                     index += 1
 
                 # strip the filter from the supplied string
@@ -706,7 +739,8 @@ def chat_with_user(
             conversations[slack_user_id] = this_conversation
 
     # parse start time information for downtime
-    if this_conversation.command.name == "downtime" and this_conversation.start_date is None:
+    if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
+            this_conversation.start_date is None:
 
         if len(cma) != 0:
 
@@ -749,7 +783,8 @@ def chat_with_user(
             conversations[slack_user_id] = this_conversation
 
     # parse end time information
-    if this_conversation.command.name in ["acknowledge", "downtime"] and this_conversation.end_date is None:
+    if action_commands.get(this_conversation.command.name).get("need_end_date") is True and \
+            this_conversation.end_date is None:
 
         if len(cma) != 0:
 
@@ -786,7 +821,7 @@ def chat_with_user(
 
             conversations[slack_user_id] = this_conversation
 
-    if this_conversation.command.name in ["acknowledge", "downtime", "comment"] and \
+    if action_commands.get(this_conversation.command.name).get("need_comment") is True and \
             this_conversation.description is None:
 
         if len(cma) != 0 and len("".join(cma).strip()) != 0:
@@ -802,15 +837,7 @@ def chat_with_user(
 
         logging.debug("Filter not set, asking for it")
 
-        response_text = None
-        if this_conversation.command.name == "acknowledge":
-            response_text = "What do you want acknowledge?"
-        elif this_conversation.command.name == "downtime":
-            response_text = "What do you want to set a downtime for?"
-        elif this_conversation.command.name == "comment":
-            response_text = "What do you want to add a comment to?"
-        elif this_conversation.command.name == "comment":
-            response_text = "What do you want to reschedule?"
+        response_text = action_commands.get(this_conversation.command.name).get("filter_question")
 
         conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
@@ -832,7 +859,8 @@ def chat_with_user(
         return BotResponse(text=response_text)
 
     # ask for not parsed start time
-    if this_conversation.command.name == "downtime" and this_conversation.start_date is None:
+    if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
+            this_conversation.start_date is None:
 
         if not this_conversation.start_date_parsing_failed:
             logging.debug("Start date not set, asking for it")
@@ -846,7 +874,8 @@ def chat_with_user(
         return BotResponse(text=response_text)
 
     # ask for not parsed end date
-    if this_conversation.command.name in ["acknowledge", "downtime"] and this_conversation.end_date is None:
+    if action_commands.get(this_conversation.command.name).get("need_end_date") is True and \
+            this_conversation.end_date is None:
 
         if not this_conversation.end_date_parsing_failed:
 
@@ -876,7 +905,8 @@ def chat_with_user(
 
         return BotResponse(text=response_text)
 
-    if this_conversation.command.name == "downtime" and this_conversation.start_date > this_conversation.end_date:
+    if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
+            this_conversation.start_date > this_conversation.end_date:
         logging.debug("Start date is after end date for downtime. Ask user again for start date.")
 
         response_text = "Sorry, start date '%s' can't be after and date '%s'. When should the downtime start?" % \
@@ -887,7 +917,7 @@ def chat_with_user(
 
         return BotResponse(text=response_text)
 
-    if this_conversation.command.name in ["acknowledge", "downtime", "comment"] and \
+    if action_commands.get(this_conversation.command.name).get("need_comment") is True and \
             this_conversation.description is None:
         logging.debug("Description not set, asking for it")
 
@@ -917,7 +947,7 @@ def chat_with_user(
                 "Command": command,
                 "Type": this_conversation.object_type
             }
-            if this_conversation.command.name == "downtime":
+            if action_commands.get(this_conversation.command.name).get("need_start_date") is True:
                 confirmation["Start"] = ts_to_date(this_conversation.start_date)
                 confirmation["End"] = ts_to_date(this_conversation.end_date)
 
@@ -1040,7 +1070,7 @@ def chat_with_user(
                 )
 
             elif this_conversation.command.name == "reschedule":
-                logging.debug("Sending Comment to Icinga2")
+                logging.debug("Sending reschedule check to Icinga2")
 
                 success_message = "Successfully rescheduled %s check%s!" % \
                                   (this_conversation.object_type, plural(len(filter_list)))
@@ -1048,6 +1078,19 @@ def chat_with_user(
                 i2_response = i2_handle.actions.reschedule_check(
                     object_type=this_conversation.object_type,
                     filters='(' + ' || '.join(filter_list) + ')'
+                )
+
+            elif this_conversation.command.name == "send notification":
+                logging.debug("Sending custom notification to Icinga2")
+
+                success_message = "Successfully sent %s notification%s!" % \
+                                  (this_conversation.object_type, plural(len(filter_list)))
+
+                i2_response = i2_handle.actions.send_custom_notification(
+                    object_type=this_conversation.object_type,
+                    filters='(' + ' || '.join(filter_list) + ')',
+                    author=author_name,
+                    comment=this_conversation.description
                 )
 
         except Exception as e:
