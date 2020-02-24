@@ -478,7 +478,7 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
                            "value": requested_help_command.long_description,
                            "short": False})
 
-            if requested_help_command.sub_commands:
+            if getattr(requested_help_command, "sub_commands", None) is not None:
 
                 sub_commands_list = list()
                 for sub_command in requested_help_command.sub_commands:
@@ -590,7 +590,7 @@ def chat_with_user(
         logging.debug("Command not set, parsing: %s" % slack_message)
         this_conversation.command = bot_commands.get_command_called(slack_message)
 
-        if this_conversation.command.name not in ["acknowledge", "downtime"]:
+        if this_conversation.command.name not in ["acknowledge", "downtime", "comment"]:
             this_conversation.command = None
             return None
 
@@ -609,6 +609,8 @@ def chat_with_user(
             index_string = " from"  # for downtime
             if this_conversation.command.name == "acknowledge":
                 index_string = " until"
+            elif this_conversation.command.name == "comment":
+                index_string = " with"
 
             #  everything left of the index string will be parsed as filter
             if index_string in slack_message.lower():
@@ -620,6 +622,10 @@ def chat_with_user(
 
                 # strip the filter from the supplied string
                 slack_message = slack_message[end_of_filter_string:]
+
+                # strip index string from slack message on comments
+                if this_conversation.command.name == "comment":
+                    slack_message = slack_message.replace(index_string, "", 1)
             else:
                 # index string not found
                 # assuming the whole message is meant to be a filter
@@ -740,7 +746,7 @@ def chat_with_user(
             conversations[slack_user_id] = this_conversation
 
     # parse end time information
-    if this_conversation.end_date is None:
+    if this_conversation.command.name in ["acknowledge", "downtime"] and this_conversation.end_date is None:
 
         if len(cma) != 0:
 
@@ -791,10 +797,13 @@ def chat_with_user(
 
         logging.debug("Filter not set, asking for it")
 
+        response_text = None
         if this_conversation.command.name == "acknowledge":
             response_text = "What do you want acknowledge?"
-        else:
+        elif this_conversation.command.name == "downtime":
             response_text = "What do you want to set a downtime for?"
+        elif this_conversation.command.name == "comment":
+            response_text = "What do you want to add a comment to?"
 
         conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
@@ -830,7 +839,7 @@ def chat_with_user(
         return BotResponse(text=response_text)
 
     # ask for not parsed end date
-    if this_conversation.end_date is None:
+    if this_conversation.command.name in ["acknowledge", "downtime"] and this_conversation.end_date is None:
 
         if not this_conversation.end_date_parsing_failed:
 
@@ -891,10 +900,10 @@ def chat_with_user(
         if not this_conversation.confirmation_sent:
 
             # get object type
-            if this_conversation.command.name == "downtime":
-                command = "Downtime"
-            else:
+            if this_conversation.command.name == "acknowledge":
                 command = "Acknowledgement"
+            else:
+                command = this_conversation.command.name.capitalize()
 
             confirmation = {
                 "Command": command,
@@ -904,7 +913,7 @@ def chat_with_user(
                 confirmation["Start"] = ts_to_date(this_conversation.start_date)
                 confirmation["End"] = ts_to_date(this_conversation.end_date)
 
-            else:
+            elif this_conversation.command.name == "acknowledge":
                 confirmation["Expire"] = "Never" if this_conversation.end_date == -1 else ts_to_date(
                     this_conversation.end_date)
 
@@ -993,7 +1002,7 @@ def chat_with_user(
                     all_services=True
                 )
 
-            else:
+            elif this_conversation.command.name == "acknowledge":
                 logging.debug("Sending Acknowledgement to Icinga2")
 
                 success_message = "Successfully acknowledged %s problem%s!" % \
@@ -1007,6 +1016,19 @@ def chat_with_user(
                     comment=this_conversation.description,
                     expiry=None if this_conversation.end_date == -1 else this_conversation.end_date,
                     sticky=True
+                )
+
+            elif this_conversation.command.name == "comment":
+                logging.debug("Sending Comment to Icinga2")
+
+                success_message = "Successfully added %s comment%s!" % \
+                                  (this_conversation.object_type, plural(len(filter_list)))
+
+                i2_response = i2_handle.actions.add_comment(
+                    object_type=this_conversation.object_type,
+                    filters='(' + ' || '.join(filter_list) + ')',
+                    author=author_name,
+                    comment=this_conversation.description
                 )
 
         except Exception as e:

@@ -263,6 +263,28 @@ implemented_commands = [
         "command_handler": "chat_with_user"
     },
     {
+        "name": "comment",
+        "shortcut": "com",
+        "short_description": "add a comment to hosts/services",
+        "long_description": "This command will start a dialog to set a comment for "
+                            "a service or host. This can be started with this command "
+                            "and the bot will ask questions about the details on following order:\n"
+                            "*1.* host/service filter\n"
+                            "*2.* the comment which should be added\n"
+                            "At the end the bot will ask you for a confirmation which can "
+                            "be answered with `yes` or just `y` or `no`. "
+                            "After that the bot will report if the action was successful or not.\n"
+                            "*SORT CUT:*\n"
+                            "It's also possible to short cut the whole Q/A and just issue the "
+                            "action in one command:\n"
+                            "`com my-server ntp with NTP source currently unavailable`\n"
+                            "*STRUCTURE:*\n"
+                            "`com <host> <service> with <comment>` or\n"
+                            "`com <host> <host> with <comment>` or\n"
+                            "`com <service> with <comment>`\n",
+        "command_handler": "chat_with_user"
+    },
+    {
         "name": "reset",
         "shortcut": "abort",
         "short_description": "abort current action (ack/dt/ena/disa)",
