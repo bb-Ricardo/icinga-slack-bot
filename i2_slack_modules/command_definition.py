@@ -327,6 +327,30 @@ implemented_commands = [
         "command_handler": "chat_with_user"
     },
     {
+        "name": "delay notification",
+        "shortcut": "dn",
+        "short_description": "delay host/service notifications",
+        "long_description": "This command will start a dialog to delay "
+                            "service or host notifications. This can be started with this command "
+                            "and the bot will ask questions about the details on following order:\n"
+                            "*1.* host/service filter\n"
+                            "*2.* time until the notifications should be delayed to\n"
+                            "At the end the bot will ask you for a confirmation which can "
+                            "be answered with `yes` or just `y` or `no`. "
+                            "After that the bot will report if the action was successful or not.\n"
+                            "*SORT CUT:*\n"
+                            "It's also possible to short cut and just issue the "
+                            "action in one command:\n"
+                            "`dn my-server ntp until tomorrow evening`\n"
+                            "This will delay notifications for the service ntp on my-server "
+                            "until 6pm the following day.\n"
+                            "*STRUCTURE:*\n"
+                            "`sn <host> <service> until <time>` or\n"
+                            "`sn <host> <host> with <time>` or\n"
+                            "`sn <service> with <time>`\n",
+        "command_handler": "chat_with_user"
+    },
+    {
         "name": "reset",
         "shortcut": "abort",
         "short_description": "abort current action (ack/dt/ena/disa)",

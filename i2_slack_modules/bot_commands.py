@@ -605,7 +605,14 @@ def chat_with_user(
             "need_start_date": False,
             "need_end_date": False,
             "need_comment": True,
-            "filter_question": "What do you want to notifications for?"
+            "filter_question": "What do you want to send notifications for?"
+        },
+        "delay notification": {
+            "filter_end_marker": "until",
+            "need_start_date": False,
+            "need_end_date": True,
+            "need_comment": False,
+            "filter_question": "What do you want to delay notifications for?"
         }
     }
 
@@ -955,6 +962,10 @@ def chat_with_user(
                 confirmation["Expire"] = "Never" if this_conversation.end_date == -1 else ts_to_date(
                     this_conversation.end_date)
 
+            elif this_conversation.command.name == "delay notification":
+                confirmation["Delayed until"] = "Never" if this_conversation.end_date == -1 else ts_to_date(
+                    this_conversation.end_date)
+
             confirmation["Comment"] = this_conversation.description
             confirmation["Objects"] = ""
 
@@ -1091,6 +1102,18 @@ def chat_with_user(
                     filters='(' + ' || '.join(filter_list) + ')',
                     author=author_name,
                     comment=this_conversation.description
+                )
+
+            elif this_conversation.command.name == "delay notification":
+                logging.debug("Sending delay notification to Icinga2")
+
+                success_message = "Successfully delayed %s notification%s!" % \
+                                  (this_conversation.object_type, plural(len(filter_list)))
+
+                i2_response = i2_handle.actions.delay_notification(
+                    object_type=this_conversation.object_type,
+                    filters='(' + ' || '.join(filter_list) + ')',
+                    timestamp=this_conversation.end_date
                 )
 
         except Exception as e:
