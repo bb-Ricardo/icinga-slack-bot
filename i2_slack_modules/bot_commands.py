@@ -606,33 +606,34 @@ def chat_with_user(
             # we got a filter
             logging.debug("Filter not set, parsing: %s" % slack_message)
 
-            index_string = " from"  # for downtime
+            index_string = "from"  # for downtime
             if this_conversation.command.name == "acknowledge":
-                index_string = " until"
+                index_string = "until"
             elif this_conversation.command.name == "comment":
-                index_string = " with"
+                index_string = "with"
+
+            split_slack_message = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
             #  everything left of the index string will be parsed as filter
-            if index_string in slack_message.lower():
+            if index_string in [s.lower() for s in split_slack_message]:
+
+                index = [s.lower() for s in split_slack_message].index(index_string)
 
                 # get end of filter list
-                end_of_filter_string = slack_message.lower().index(index_string)
-
-                filter_string = slack_message[:end_of_filter_string]
-
-                # strip the filter from the supplied string
-                slack_message = slack_message[end_of_filter_string:]
+                filter_list = split_slack_message[0:index]
 
                 # strip index string from slack message on comments
                 if this_conversation.command.name == "comment":
-                    slack_message = slack_message.replace(index_string, "", 1)
+                    index += 1
+
+                # strip the filter from the supplied string
+                slack_message = " ".join(split_slack_message[index:])
+
             else:
                 # index string not found
                 # assuming the whole message is meant to be a filter
-                filter_string = slack_message
+                filter_list = split_slack_message
                 slack_message = ""
-
-            filter_list = quoted_split(string_to_split=filter_string, preserve_quotations=True)
 
             logging.debug("Filter parsed: %s" % filter_list)
 
@@ -709,26 +710,26 @@ def chat_with_user(
 
             logging.debug("Start date not set, parsing: %s" % " ".join(cma))
 
-            for index, item in enumerate(cma):
-                if item.lower() == "from":
-                    cma[index] = "from"
-                    break
+            date_string_parse = " ".join(cma)
 
-            for index, item in enumerate(cma):
-                if item.lower() == "until":
-                    cma[index] = "until"
-                    break
+            cma_lower = [s.lower() for s in cma]
 
-            if "from" in cma:
-                cma = cma[cma.index("from") + 1:]
+            from_index = None
+            until_index = None
+            if "from" in cma_lower:
+                from_index = cma_lower.index("from")
 
-            if "until" in cma:
-                string_parse = " ".join(cma[0:cma.index("until")])
-                cma = cma[cma.index("until"):]
-            else:
-                string_parse = " ".join(cma)
+                if "until" in cma_lower:
+                    until_index = cma_lower.index("until")
 
-            start_date_data = parse_relative_date(string_parse)
+            if from_index is not None and len(cma) > from_index + 1:
+                cma = cma[from_index + 1:]
+
+                if until_index is not None:
+                    date_string_parse = " ".join(cma[0:until_index])
+                    cma = cma[cma.until_index:]
+
+            start_date_data = parse_relative_date(date_string_parse)
 
             if start_date_data:
 
@@ -738,10 +739,10 @@ def chat_with_user(
                 if start_date_data.get("dt"):
                     this_conversation.start_date = start_date_data.get("dt").timestamp()
 
-                if cma[0] != "until":
-                    cma = string_parse[start_date_data.get("mend"):].strip().split(" ")
+                if len(cma) >= 1 and cma[0].lower() != "until":
+                    cma = date_string_parse[start_date_data.get("mend"):].strip().split(" ")
             else:
-                this_conversation.start_date_parsing_failed = string_parse
+                this_conversation.start_date_parsing_failed = date_string_parse
 
             conversations[slack_user_id] = this_conversation
 
@@ -752,15 +753,16 @@ def chat_with_user(
 
             logging.debug("End date not set, parsing: %s" % " ".join(cma))
 
-            for index, item in enumerate(cma):
-                if item.lower() == "until":
-                    cma[index] = "until"
-                    break
+            cma_lower = [s.lower() for s in cma]
 
-            if "until" in cma:
-                cma = cma[cma.index("until") + 1:]
+            until_index = None
+            if "until" in cma_lower:
+                until_index = cma_lower.index("until")
 
-            if cma[0].lower() in ["never", "infinite"]:
+            if until_index is not None and len(cma) > until_index + 1:
+                cma = cma[until_index + 1:]
+
+            if len(cma) >= 1 and cma[0].lower() in ["never", "infinite"]:
                 # add rest of message as description
                 this_conversation.end_date = -1
                 del cma[0]
