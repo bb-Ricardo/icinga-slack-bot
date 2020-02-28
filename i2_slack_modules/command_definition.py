@@ -111,6 +111,21 @@ enable_disable_sub_commands = [
     }
 ]
 
+remove_sub_commands = [
+    {
+        "name": "acknowledgement",
+        "shortcut": "ack"
+    },
+    {
+        "name": "downtime",
+        "shortcut": "dt"
+    },
+    {
+        "name": "comment",
+        "shortcut": "com"
+    },
+]
+
 implemented_commands = [
     {
         "name": "help",
@@ -345,10 +360,31 @@ implemented_commands = [
                             "This will delay notifications for the service ntp on my-server "
                             "until 6pm the following day.\n"
                             "*STRUCTURE:*\n"
-                            "`sn <host> <service> until <time>` or\n"
-                            "`sn <host> <host> with <time>` or\n"
-                            "`sn <service> with <time>`\n",
+                            "`dn <host> <service> with <time>` or\n"
+                            "`dn <host> <host> with <time>` or\n"
+                            "`dn <service> with <time>`\n",
         "command_handler": "chat_with_user"
+    },
+    {
+        "name": "remove",
+        "shortcut": "rm",
+        "short_description": "remove a comment/downtime/acknowledgement",
+        "long_description": "This command will remove a comment/downtime/acknowledgement. "
+                            "At the end the bot will ask you for a selection or a "
+                            "confirmation which can be answered with `yes` or "
+                            "just `y` or `no` or the item in the list comma separated.\n"
+                            "After that the bot will report if the action was successful or not.\n"
+                            "*SORT CUT:*\n"
+                            "It's also possible to short cut and just issue the "
+                            "action in one command:\n"
+                            "`remove ack from ntp`\n"
+                            "This will ask remove the acknowledgement from all hosts and service with ntp\n"
+                            "*STRUCTURE:*\n"
+                            "`remove <host> <service>` or\n"
+                            "`remove <host> <host>` or\n"
+                            "`remove <service>`\n",
+        "command_handler": "chat_with_user",
+        "sub_commands": remove_sub_commands
     },
     {
         "name": "reset",

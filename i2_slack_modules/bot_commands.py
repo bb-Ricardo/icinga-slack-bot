@@ -225,8 +225,11 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
 
                 # add comment to object attachment
                 for comment in object_comment_list:
-                    comment_title = "Comment by {} ({})".format(comment.get("author"),
-                                                                ts_to_date(comment.get("entry_time")))
+                    this_type = "Comment"
+                    if comment.get("entry_type", 1) == 4:
+                        this_type = "Acknowledgement"
+                    comment_title = "{} by {} ({})".format(this_type, comment.get("author"),
+                                                           ts_to_date(comment.get("entry_time")))
 
                     # add text and info about expiration
                     comment_text = comment.get("text")
@@ -255,7 +258,7 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
                 fields = list()
                 for title, value in object_fields.items():
                     short = True
-                    if title in ["Output"] or "Comment" in title or "Downtime" in title:
+                    if any(x in title for x in ["Output", "Comment", "Downtime", "Acknowledgement"]):
                         short = False
                     fields.append({
                         "title": title,
@@ -478,6 +481,7 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
                            "value": requested_help_command.long_description,
                            "short": False})
 
+            example_sub_command_shortcut = "sn"
             if getattr(requested_help_command, "sub_commands", None) is not None:
 
                 sub_commands_list = list()
@@ -489,15 +493,17 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
                         else:
                             sub_command_shortcut = sub_command.shortcut
 
+                        example_sub_command_shortcut = sub_command_shortcut
                         sub_command_shortcut = " (%s)" % sub_command_shortcut
 
                     sub_commands_list.append("*Name*: %s%s" % (sub_command.name, sub_command_shortcut))
 
                     example_suffix = ""
-                    if sub_command.object_type == "Host":
-                        example_suffix = " <host>"
-                    elif sub_command.object_type == "Service":
-                        example_suffix = " <host/service>"
+                    if hasattr(sub_command, "object_type"):
+                        if sub_command.object_type == "Host":
+                            example_suffix = " <host>"
+                        elif sub_command.object_type == "Service":
+                            example_suffix = " <host/service>"
 
                     sub_commands_list.append("`<bot> %s %s%s`" % (
                             requested_help_command.name, sub_command.name, example_suffix)
@@ -509,8 +515,10 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
 
                 fields.append({"title": "Example of shortcut usage",
                                "value": "%s notifications for webserver services\n"
-                                        "`<bot> %s sn webserver`" % (
-                                            requested_help_command.name, requested_help_command.shortcut),
+                                        "`<bot> %s %s webserver`" % (
+                                            requested_help_command.name,
+                                            requested_help_command.shortcut,
+                                            example_sub_command_shortcut),
                                "short": False})
 
         if help_headline is None:
@@ -587,7 +595,7 @@ def chat_with_user(
             "filter_question": "What do you want to set a downtime for?"
         },
         "comment": {
-            "filter_end_marker": "which",
+            "filter_end_marker": "with",
             "need_start_date": False,
             "need_end_date": False,
             "need_comment": True,
@@ -601,7 +609,7 @@ def chat_with_user(
             "filter_question": "What do you want to reschedule?"
         },
         "send notification": {
-            "filter_end_marker": "which",
+            "filter_end_marker": "with",
             "need_start_date": False,
             "need_end_date": False,
             "need_comment": True,
@@ -613,6 +621,14 @@ def chat_with_user(
             "need_end_date": True,
             "need_comment": False,
             "filter_question": "What do you want to delay notifications for?"
+        },
+        "remove": {
+            "filter_end_marker": None,
+            "need_start_date": False,
+            "need_end_date": False,
+            "need_comment": False,
+            "has_sub_commands": True,
+            "filter_question": "For which object do you want to remove {}s?"
         }
     }
 
@@ -645,6 +661,23 @@ def chat_with_user(
         conversations[slack_user_id] = this_conversation
 
         slack_message = this_conversation.command.strip_command(slack_message)
+
+    if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True and \
+            this_conversation.sub_command is None:
+
+        if len(slack_message) != 0:
+            # we got a filter
+            logging.debug("Sub command not set, parsing: %s" % slack_message)
+
+            if this_conversation.command.has_sub_commands():
+                this_conversation.sub_command = \
+                    this_conversation.command.sub_commands.get_command_called(slack_message)
+
+                if this_conversation.sub_command:
+                    slack_message = this_conversation.sub_command.strip_command(slack_message)
+                    logging.debug("Sub command parsed: %s" % this_conversation.sub_command.name)
+
+            conversations[slack_user_id] = this_conversation
 
     # check for filter
     if this_conversation.filter is None:
@@ -679,7 +712,8 @@ def chat_with_user(
 
             logging.debug("Filter parsed: %s" % filter_list)
 
-            this_conversation.filter = filter_list
+            if len(filter_list) > 0:
+                this_conversation.filter = filter_list
             conversations[slack_user_id] = this_conversation
 
     # split slack_message into an array (chat message array)
@@ -700,15 +734,33 @@ def chat_with_user(
         if len(this_conversation.filter) == 1:
 
             object_type = "Host"
+            if this_conversation.sub_command is not None:
+                if this_conversation.sub_command.name == "Downtime":
+                    object_type = "HostDowntime"
+                else:
+                    object_type = "HostComment"
+
             i2_result = get_i2_object(config, object_type, host_filter, this_conversation.filter)
 
             if i2_result.error is None and len(i2_result.data) == 0:
                 object_type = "Service"
+                if this_conversation.sub_command is not None:
+                    if this_conversation.sub_command.name == "downtime":
+                        object_type = "ServiceDowntime"
+                    else:
+                        object_type = "ServiceComment"
+
                 i2_result = get_i2_object(config, object_type, service_filter, this_conversation.filter)
 
         # just query services
         else:
             object_type = "Service"
+            if this_conversation.sub_command is not None:
+                if this_conversation.sub_command.name == "downtime":
+                    object_type = "ServiceDowntime"
+                else:
+                    object_type = "ServiceComment"
+
             i2_result = get_i2_object(config, object_type, service_filter, this_conversation.filter)
 
         # encountered Icinga request issue
@@ -722,10 +774,23 @@ def chat_with_user(
             )
 
         # we can set a downtime for all objects no matter their state
-        if this_conversation.command.name == "downtime" and len(i2_result.data) > 0:
+        if this_conversation.sub_command is not None:
 
-            this_conversation.filter_result = i2_result.data
-        else:
+            if this_conversation.sub_command.name == "downtime" and len(i2_result.data) > 0:
+                this_conversation.filter_result = i2_result.data
+            else:
+                # filter results based on sub command name
+                ack_filter_result = list()
+                for result in i2_result.data:
+                    if this_conversation.sub_command.name == "comment" and result.get("entry_type") == 1:
+                        ack_filter_result.append(result)
+                    if this_conversation.sub_command.name == "acknowledgement" and result.get("entry_type") == 4:
+                        ack_filter_result.append(result)
+
+                if len(ack_filter_result) > 0:
+                    this_conversation.filter_result = ack_filter_result
+
+        elif this_conversation.command.name == "acknowledge" and len(i2_result.data) > 0:
 
             # only objects which are not acknowledged can be acknowledged
             ack_filter_result = list()
@@ -737,17 +802,26 @@ def chat_with_user(
             if len(ack_filter_result) > 0:
                 this_conversation.filter_result = ack_filter_result
 
+        else:
+            this_conversation.filter_result = i2_result.data
+
         # save current conversation state if filter returned any objects
         if this_conversation.filter_result and len(this_conversation.filter_result) > 0:
-            logging.debug("Found %d objects for command %s" %
-                          (len(this_conversation.filter_result), this_conversation.command.name))
+            sub_command_name = ""
+            if this_conversation.sub_command is not None:
+                sub_command_name = f" {this_conversation.sub_command.name}"
+
+            logging.debug("Found %d objects for command %s%s" %
+                          (len(this_conversation.filter_result), this_conversation.command.name, sub_command_name))
 
             this_conversation.object_type = object_type
             conversations[slack_user_id] = this_conversation
+        else:
+            this_conversation.filter_result = None
 
     # parse start time information for downtime
     if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
-            this_conversation.start_date is None:
+            this_conversation.start_date is None and this_conversation.filter_result is not None:
 
         if len(cma) != 0:
 
@@ -769,8 +843,9 @@ def chat_with_user(
                 cma = cma[from_index + 1:]
 
                 if until_index is not None:
+                    until_index -= 1
                     date_string_parse = " ".join(cma[0:until_index])
-                    cma = cma[cma.until_index:]
+                    cma = cma[until_index:]
 
             start_date_data = parse_relative_date(date_string_parse)
 
@@ -791,7 +866,7 @@ def chat_with_user(
 
     # parse end time information
     if action_commands.get(this_conversation.command.name).get("need_end_date") is True and \
-            this_conversation.end_date is None:
+            this_conversation.end_date is None and this_conversation.filter_result is not None:
 
         if len(cma) != 0:
 
@@ -829,7 +904,7 @@ def chat_with_user(
             conversations[slack_user_id] = this_conversation
 
     if action_commands.get(this_conversation.command.name).get("need_comment") is True and \
-            this_conversation.description is None:
+            this_conversation.description is None and this_conversation.filter_result is not None:
 
         if len(cma) != 0 and len("".join(cma).strip()) != 0:
             logging.debug("Description not set, parsing: %s" % " ".join(cma))
@@ -839,12 +914,28 @@ def chat_with_user(
 
         conversations[slack_user_id] = this_conversation
 
+    # ask for sub command
+    if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True and \
+            this_conversation.sub_command is None:
+
+        logging.debug("Sub command not set, asking for it")
+
+        response_text = \
+            "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
+            this_conversation.command.name
+
+        conversations[slack_user_id] = this_conversation
+        return BotResponse(text=response_text)
+
     # ask for missing info
     if this_conversation.filter is None:
 
         logging.debug("Filter not set, asking for it")
 
         response_text = action_commands.get(this_conversation.command.name).get("filter_question")
+
+        if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True:
+            response_text = response_text.format(this_conversation.sub_command.name)
 
         conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
@@ -858,8 +949,12 @@ def chat_with_user(
         if this_conversation.command.name == "acknowledge":
             problematic = " problematic"
 
-        response_text = "Sorry, I was not able to find any%s hosts or services for your search '%s'. Try again." \
-                        % (problematic, " ".join(this_conversation.filter))
+        object_text = "hosts or services"
+        if this_conversation.sub_command is not None:
+            object_text = this_conversation.sub_command.name
+
+        response_text = "Sorry, I was not able to find any%s %s for your search '%s'. Try again." \
+                        % (problematic, object_text, " ".join(this_conversation.filter))
 
         this_conversation.filter = None
         conversations[slack_user_id] = this_conversation
@@ -940,6 +1035,20 @@ def chat_with_user(
             elif cma[0].startswith("n") or cma[0].startswith("N"):
                 this_conversation.canceled = True
             else:
+                # see if user tried to filter the selection (i.e.: 1,2)
+                if this_conversation.sub_command is not None:
+                    selection_list = [x.strip() for x in " ".join(cma).split(",")]
+                    if len(selection_list) > 0:
+                        objects_to_keep = list()
+                        for selection in selection_list:
+                            try:
+                                objects_to_keep.append(this_conversation.filter_result[int(selection) - 1])
+                            except Exception:
+                                pass
+
+                        if len(objects_to_keep) > 0:
+                            this_conversation.filter_result = objects_to_keep
+
                 this_conversation.confirmation_sent = False
 
         if not this_conversation.confirmation_sent:
@@ -950,9 +1059,13 @@ def chat_with_user(
             else:
                 command = this_conversation.command.name.capitalize()
 
+            confirmation_type = this_conversation.object_type
+            if this_conversation.sub_command is not None:
+                confirmation_type = this_conversation.sub_command.name
+
             confirmation = {
                 "Command": command,
-                "Type": this_conversation.object_type
+                "Type": confirmation_type
             }
             if action_commands.get(this_conversation.command.name).get("need_start_date") is True:
                 confirmation["Start"] = ts_to_date(this_conversation.start_date)
@@ -966,7 +1079,9 @@ def chat_with_user(
                 confirmation["Delayed until"] = "Never" if this_conversation.end_date == -1 else ts_to_date(
                     this_conversation.end_date)
 
-            confirmation["Comment"] = this_conversation.description
+            if action_commands.get(this_conversation.command.name).get("need_comment") is True:
+                confirmation["Comment"] = this_conversation.description
+
             confirmation["Objects"] = ""
 
             response = BotResponse(text="Confirm your action")
@@ -975,18 +1090,58 @@ def chat_with_user(
             for title, value in confirmation.items():
                 confirmation_fields.append(">*%s*: %s" % (title, value))
 
+            object_num = 0
             for i2_object in this_conversation.filter_result[0:10]:
-                if this_conversation.object_type == "Host":
-                    name = i2_object.get("name")
-                else:
-                    name = '%s - %s' % (i2_object.get("host_name"), i2_object.get("name"))
+                object_num += 1
+                host_name = service_name = comment_text = author = None
+                bullet_text = "•"
 
-                confirmation_fields.append(u">\t• %s" % name)
+                if this_conversation.object_type == "Service":
+                    host_name = i2_object.get("host_name")
+                    service_name = i2_object.get("name")
+
+                elif "Comment" in this_conversation.object_type or "Downtime" in this_conversation.object_type:
+
+                    bullet_text = f"{object_num}."
+                    host_name = i2_object.get("host_name")
+                    if len(i2_object.get("service_name", "")) > 0:
+                        service_name = i2_object.get("service_name")
+
+                    if i2_object.get("comment") is not None:
+                        comment_text = i2_object.get("comment")
+                    else:
+                        comment_text = i2_object.get("text")
+
+                    author = i2_object.get("author")
+
+                else:  # host
+                    host_name = i2_object.get("name")
+
+                host_url = get_web2_slack_url(host_name, web2_url=config["icinga.web2_url"])
+                service_url = get_web2_slack_url(host_name, service_name, web2_url=config["icinga.web2_url"])
+
+                if service_name is not None:
+                    object_text = "%s | %s" % (host_url, service_url)
+                else:
+                    object_text = host_url
+
+                if comment_text is not None:
+                    object_text += f" - {comment_text}"
+                if comment_text is not None:
+                    object_text += f" (by: {author})"
+
+                confirmation_fields.append(u">\t%s %s" % (bullet_text, object_text))
 
             if len(this_conversation.filter_result) > 10:
                 confirmation_fields.append(">\t... and %d more" % (len(this_conversation.filter_result) - 10))
             response.add_block("\n".join(confirmation_fields))
-            response.add_block("Do you want to confirm this action?:")
+
+            if this_conversation.sub_command is not None:
+                response.add_block("Do you want to confirm this action (yes|no)\n"
+                                   "or do you want to select single/multiple %s (i.e.: 1,2)?:" %
+                                   this_conversation.sub_command.name)
+            else:
+                response.add_block("Do you want to confirm this action?:")
 
             this_conversation.confirmation_sent = True
             conversations[slack_user_id] = this_conversation
@@ -1032,6 +1187,8 @@ def chat_with_user(
         if this_user_info is not None and this_user_info.get("real_name"):
             author_name = this_user_info.get("real_name")
 
+        icinga2_filters = '(' + ' || '.join(filter_list) + ')'
+
         try:
 
             if this_conversation.command.name == "downtime":
@@ -1042,7 +1199,7 @@ def chat_with_user(
 
                 i2_response = i2_handle.actions.schedule_downtime(
                     object_type=this_conversation.object_type,
-                    filters='(' + ' || '.join(filter_list) + ')',
+                    filters=icinga2_filters,
                     author=author_name,
                     comment=this_conversation.description,
                     start_time=this_conversation.start_date,
@@ -1057,10 +1214,9 @@ def chat_with_user(
                 success_message = "Successfully acknowledged %s problem%s!" % \
                                   (this_conversation.object_type, plural(len(filter_list)))
 
-                # https://github.com/fmnisme/python-icinga2api/blob/master/doc/4-actions.md#-actionsacknowledge_problem
                 i2_response = i2_handle.actions.acknowledge_problem(
                     object_type=this_conversation.object_type,
-                    filters='(' + ' || '.join(filter_list) + ')',
+                    filters=icinga2_filters,
                     author=author_name,
                     comment=this_conversation.description,
                     expiry=None if this_conversation.end_date == -1 else this_conversation.end_date,
@@ -1075,7 +1231,7 @@ def chat_with_user(
 
                 i2_response = i2_handle.actions.add_comment(
                     object_type=this_conversation.object_type,
-                    filters='(' + ' || '.join(filter_list) + ')',
+                    filters=icinga2_filters,
                     author=author_name,
                     comment=this_conversation.description
                 )
@@ -1088,7 +1244,7 @@ def chat_with_user(
 
                 i2_response = i2_handle.actions.reschedule_check(
                     object_type=this_conversation.object_type,
-                    filters='(' + ' || '.join(filter_list) + ')'
+                    filters=icinga2_filters,
                 )
 
             elif this_conversation.command.name == "send notification":
@@ -1099,7 +1255,7 @@ def chat_with_user(
 
                 i2_response = i2_handle.actions.send_custom_notification(
                     object_type=this_conversation.object_type,
-                    filters='(' + ' || '.join(filter_list) + ')',
+                    filters=icinga2_filters,
                     author=author_name,
                     comment=this_conversation.description
                 )
@@ -1112,9 +1268,53 @@ def chat_with_user(
 
                 i2_response = i2_handle.actions.delay_notification(
                     object_type=this_conversation.object_type,
-                    filters='(' + ' || '.join(filter_list) + ')',
+                    filters=icinga2_filters,
                     timestamp=this_conversation.end_date
                 )
+            elif this_conversation.command.name == "remove":
+
+                logging.debug(f"Sending remove {this_conversation.sub_command.name} to Icinga2")
+
+                success_message = f"Successfully removed {this_conversation.sub_command.name}!"
+
+                if this_conversation.sub_command.name == "acknowledgement":
+
+                    for acknowledgement in this_conversation.filter_result:
+
+                        this_object_type = "Host"
+                        this_filter = 'host.name=="%s"' % acknowledgement.get("host_name")
+                        if len(acknowledgement.get("service_name", "")) > 0:
+                            this_object_type = "Service"
+                            this_filter += ' && service.name=="%s"' % acknowledgement.get("service_name")
+
+                        i2_response = i2_handle.actions.remove_acknowledgement(
+                            object_type=this_object_type,
+                            filters=this_filter,
+                        )
+
+                if this_conversation.sub_command.name == "comment":
+
+                    for comment in this_conversation.filter_result:
+                        name = "!".join(
+                            [comment.get("host_name"), comment.get("service_name"), comment.get("name")]
+                        ).replace("!!", "!")
+                        i2_response = i2_handle.actions.remove_comment(
+                            object_type="Comment",
+                            name=name,
+                            filters=None  # bug in icinga2apic
+                        )
+
+                if this_conversation.sub_command.name == "downtime":
+
+                    for downtime in this_conversation.filter_result:
+                        name = "!".join(
+                            [downtime.get("host_name"), downtime.get("service_name"), downtime.get("name")]
+                        ).replace("!!", "!")
+                        i2_response = i2_handle.actions.remove_downtime(
+                            object_type="Downtime",
+                            name=name,
+                            filters=None
+                        )
 
         except Exception as e:
             i2_error = str(e)

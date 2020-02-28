@@ -161,10 +161,11 @@ def get_i2_object(config, object_type="Host", filter_states=None, filter_names=N
 
     # default attributes to query
     if "Comment" in object_type:
-        list_attrs = ['author', 'text', 'host_name', 'service_name', "entry_time", "expire_time", "type"]
+        list_attrs = ['author', 'text', 'host_name', 'service_name', 'entry_time', 'expire_time', 'type',
+                      'entry_type', 'name']
     elif "Downtime" in object_type:
-        list_attrs = ['author', 'comment', 'host_name', 'service_name', "entry_time", "start_time", "end_time",
-                      'fixed', 'duration', "type"]
+        list_attrs = ['author', 'comment', 'host_name', 'service_name', 'entry_time', 'start_time', 'end_time',
+                      'fixed', 'duration', 'type', 'name']
     else:
         list_attrs = ['name', 'state', 'last_check_result', 'acknowledgement', 'downtime_depth', 'last_state_change',
                       'enable_active_checks', 'enable_event_handler', 'enable_flapping', 'enable_notifications',
