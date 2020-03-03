@@ -5,7 +5,7 @@
 
 # need import here as they will be called on whatever is defined in command_definition command_handlers
 # noinspection PyUnresolvedReferences
-from .bot_commands import (
+from i2_slack_modules.bot_commands import (
     slack_command_ping,
     reset_conversation,
     run_icinga_status_query,

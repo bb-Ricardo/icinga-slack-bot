@@ -6,10 +6,12 @@
 import json
 import logging
 
-from icinga2apic.client import Client, Icinga2ApiException
-
+# internal
 from .icinga_states import IcingaStates
 from .common import quoted_split
+
+# external
+from icinga2apic.client import Client, Icinga2ApiException
 
 
 class RequestResponse:
