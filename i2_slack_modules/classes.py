@@ -138,6 +138,30 @@ class SlackConversation:
         self.user_id = user_id
 
 
+class SlackUser:
+
+    last_conversation = None
+    conversation = None
+    id = None
+    data = dict()
+    data_last_updated = 0
+
+    def __init__(self, data: dict = None):
+
+        if data is not None:
+            self.data = data
+
+    def reset_conversation(self):
+        if self.conversation is not None:
+            self.last_conversation = self.conversation
+            self.conversation = None
+
+    def start_conversation(self):
+
+        if self.conversation is None:
+            self.conversation = SlackConversation()
+
+
 class SlackUsers:
     """
     A class used to fetch and hold information about
@@ -150,22 +174,29 @@ class SlackUsers:
 
     web_handle = None
     user_data = dict()
+    users = dict()
 
-    def get_user_info(self, user_id: str) -> dict:
+    def get(self, user_id: str) -> SlackUser:
         """
-        Returns a slack user data dict for user_id
+        Returns a SlackUser object. Creates a new
+        one if none for user_id exists.
 
         Parameters
         ----------
-        user_id: str
+        user_id: Sl
             user id to return data for
 
         Returns
         -------
-        dict: slack user data dict
+        SlackUser: returns SlackUser object
         """
 
-        return self.user_data.get(user_id)
+        # create new user if user could not be found
+        if self.users.get(user_id) is None:
+            new_user = SlackUser()
+            self.users[user_id] = new_user
+
+        return self.users.get(user_id)
 
     def set_web_handle(self, web_handle: WebClient) -> None:
         """
@@ -203,10 +234,10 @@ class SlackUsers:
             logging.error("%: user_id not provided.", my_own_function_name())
             return
 
-        this_user = self.get_user_info(user_id)
+        this_user = self.get(user_id)
 
         if this_user is not None and \
-                this_user["ts_created"] + self.user_data_cache_timeout >= datetime.now().timestamp():
+                this_user.data_last_updated + self.user_data_cache_timeout >= datetime.now().timestamp():
             return False
 
         logging.debug("User data cache for user '%s' expired." % user_id)
@@ -241,8 +272,10 @@ class SlackUsers:
 
         if slack_user_data is not None and slack_user_data.get("user"):
             logging.debug("Successfully fetched user data.")
-            self.user_data[user_id] = slack_user_data.get("user")
-            self.user_data[user_id]["ts_created"] = datetime.now().timestamp()
+
+            user = self.get(user_id)
+            user.data = slack_user_data.get("user")
+            user.data_last_updated = datetime.now().timestamp()
         else:
             logging.error("Unable to fetched user data.")
 

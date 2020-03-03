@@ -17,7 +17,7 @@ import ssl as ssl_lib
 import certifi
 import slack
 
-from i2_slack_modules.classes import BotResponse, SlackUsers
+from i2_slack_modules.classes import BotResponse, SlackUsers, SlackUser
 from i2_slack_modules.icinga_connection import RequestResponse
 from i2_slack_modules.common import (
     parse_command_line,
@@ -56,7 +56,6 @@ mention_regex = "^<@(|[WU].+?)>(.*)"
 
 args = None
 config = None
-conversations = dict()
 user_info = SlackUsers()
 
 
@@ -66,7 +65,7 @@ user_info = SlackUsers()
 #
 
 
-async def handle_command(slack_message, slack_user_id=None):
+async def handle_command(slack_message, slack_user=None):
     """parse a Slack message and try to interpret commands
 
     Currently implemented commands:
@@ -82,8 +81,8 @@ async def handle_command(slack_message, slack_user_id=None):
     ----------
     slack_message : str
         Slack message to parse
-    slack_user_id : str
-        Slack user id who sent the message
+    slack_user : SlackUser
+        SlackUser object of user who sent this message
 
     Returns
     -------
@@ -109,11 +108,9 @@ async def handle_command(slack_message, slack_user_id=None):
     """
     command_handler_args = {
         "config": config,
-        "conversations": conversations,
         "bot_commands": bot_commands,
         "slack_message": slack_message,
-        "slack_user_id": slack_user_id,
-        "slack_user_data": user_info
+        "slack_user": slack_user
     }
 
     # special case to reset conversation
@@ -121,13 +118,13 @@ async def handle_command(slack_message, slack_user_id=None):
         response = called_command.get_command_handler()(**command_handler_args)
 
     # continue with conversion if there is one ongoing
-    if response is None and conversations.get(slack_user_id):
-        this_command_handler = conversations[slack_user_id].command.get_command_handler()
+    if response is None and slack_user.conversation is not None:
+        this_command_handler = slack_user.conversation.command.get_command_handler()
         # try to chat with user
         response = this_command_handler(**command_handler_args)
 
     # any regular command which is not reset
-    if response is None and called_command and called_command.name != "reset":
+    if response is None and called_command is not None and called_command.name != "reset":
 
         logging.debug("Received '%s' command" % called_command.name)
 
@@ -180,7 +177,7 @@ async def message(**payload):
         user_info.set_web_handle(web_client)
 
         # parse command
-        response = await handle_command(data.get("text"), data.get("user"))
+        response = await handle_command(data.get("text"), user_info.get(data.get("user")))
 
         slack_api_response = post_slack_message(web_client, channel_id, response)
 

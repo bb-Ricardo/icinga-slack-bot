@@ -7,7 +7,6 @@ from . import *
 from .common import *
 from .icinga_connection import *
 from .slack_helper import *
-from .classes import SlackConversation
 from .icinga_states import IcingaStates
 
 max_messages_to_display_detailed_status = 4
@@ -33,16 +32,14 @@ def slack_command_ping(*args, **kwargs):
 
 
 # noinspection PyUnusedLocal
-def reset_conversation(slack_user_id=None, conversations=None, *args, **kwargs):
+def reset_conversation(slack_user=None, *args, **kwargs):
     """
     reset a conversation
 
     Parameters
     ----------
-    conversations: dict
-        object to hold current state of conversation
-    slack_user_id : string
-        slack user id
+    slack_user : SlackUser
+        SlackUser object
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -51,8 +48,8 @@ def reset_conversation(slack_user_id=None, conversations=None, *args, **kwargs):
     BotResponse: response if action was successful
     """
 
-    if slack_user_id is not None and conversations is not None and conversations.get(slack_user_id) is not None:
-        del conversations[slack_user_id]
+    if slack_user is not None:
+        slack_user.reset_conversation()
         return BotResponse(text="Your conversation has been reset.")
 
     return None
@@ -547,11 +544,9 @@ def slack_command_help(config=None, slack_message=None, bot_commands=None, *args
 # noinspection PyUnusedLocal
 def chat_with_user(
         config=None,
-        conversations=None,
         bot_commands=None,
         slack_message=None,
-        slack_user_id=None,
-        slack_user_data=None,
+        slack_user=None,
         *args, **kwargs):
     """
     Have a conversation with the user about the action the user wants to perform
@@ -560,16 +555,12 @@ def chat_with_user(
     ----------
     config : dict
         dictionary with items parsed from config file
-    conversations: dict
-        object to hold current state of conversation
     bot_commands: BotCommands
         class with bot commands to avoid circular imports
     slack_message : string
         slack message to parse
-    slack_user_id : string
-        slack user id
-    slack_user_data: SlackUsers
-        a SlackUsers object with user information pulled from Slack
+    slack_user : SlackUser
+        SlackUser object
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -635,17 +626,17 @@ def chat_with_user(
     if slack_message is None:
         logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_message", my_own_function_name()))
 
-    if slack_user_id is None:
+    if slack_user is None:
         logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_user_id", my_own_function_name()))
 
-    if slack_message is None or slack_user_id is None:
+    if slack_message is None or slack_user is None:
         return slack_error_response()
 
     # New conversation
-    if conversations.get(slack_user_id) is None:
-        conversations[slack_user_id] = SlackConversation(slack_user_id)
+    if slack_user.conversation is None:
+        slack_user.start_conversation()
 
-    this_conversation = conversations.get(slack_user_id)
+    this_conversation = slack_user.conversation
 
     # check or command
     if this_conversation.command is None:
@@ -657,8 +648,6 @@ def chat_with_user(
             return None
 
         logging.debug("Command parsed: %s" % this_conversation.command.name)
-
-        conversations[slack_user_id] = this_conversation
 
         slack_message = this_conversation.command.strip_command(slack_message)
 
@@ -676,8 +665,6 @@ def chat_with_user(
                 if this_conversation.sub_command:
                     slack_message = this_conversation.sub_command.strip_command(slack_message)
                     logging.debug("Sub command parsed: %s" % this_conversation.sub_command.name)
-
-            conversations[slack_user_id] = this_conversation
 
     # check for filter
     if this_conversation.filter is None:
@@ -714,7 +701,6 @@ def chat_with_user(
 
             if len(filter_list) > 0:
                 this_conversation.filter = filter_list
-            conversations[slack_user_id] = this_conversation
 
     # split slack_message into an array (chat message array)
     cma = quoted_split(string_to_split=slack_message, preserve_quotations=True)
@@ -815,7 +801,6 @@ def chat_with_user(
                           (len(this_conversation.filter_result), this_conversation.command.name, sub_command_name))
 
             this_conversation.object_type = object_type
-            conversations[slack_user_id] = this_conversation
         else:
             this_conversation.filter_result = None
 
@@ -862,8 +847,6 @@ def chat_with_user(
             else:
                 this_conversation.start_date_parsing_failed = date_string_parse
 
-            conversations[slack_user_id] = this_conversation
-
     # parse end time information
     if action_commands.get(this_conversation.command.name).get("need_end_date") is True and \
             this_conversation.end_date is None and this_conversation.filter_result is not None:
@@ -901,8 +884,6 @@ def chat_with_user(
                 else:
                     this_conversation.end_date_parsing_failed = string_parse
 
-            conversations[slack_user_id] = this_conversation
-
     if action_commands.get(this_conversation.command.name).get("need_comment") is True and \
             this_conversation.description is None and this_conversation.filter_result is not None:
 
@@ -911,8 +892,6 @@ def chat_with_user(
 
             this_conversation.description = " ".join(cma)
             cma = list()
-
-        conversations[slack_user_id] = this_conversation
 
     # ask for sub command
     if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True and \
@@ -924,7 +903,6 @@ def chat_with_user(
             "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
             this_conversation.command.name
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # ask for missing info
@@ -937,7 +915,6 @@ def chat_with_user(
         if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True:
             response_text = response_text.format(this_conversation.sub_command.name)
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # no objects found based on filter
@@ -957,7 +934,6 @@ def chat_with_user(
                         % (problematic, object_text, " ".join(this_conversation.filter))
 
         this_conversation.filter = None
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # ask for not parsed start time
@@ -972,7 +948,6 @@ def chat_with_user(
             response_text = "Sorry, I was not able to understand the start date '%s'. Try again please." \
                             % this_conversation.start_date_parsing_failed
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # ask for not parsed end date
@@ -992,7 +967,6 @@ def chat_with_user(
             response_text = "Sorry, I was not able to understand the end date '%s'. Try again please." \
                             % this_conversation.end_date_parsing_failed
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     if this_conversation.end_date and this_conversation.end_date != -1 and \
@@ -1003,7 +977,6 @@ def chat_with_user(
                         ts_to_date(this_conversation.end_date)
 
         this_conversation.end_date = None
-        conversations[slack_user_id] = this_conversation
 
         return BotResponse(text=response_text)
 
@@ -1015,7 +988,6 @@ def chat_with_user(
                         (ts_to_date(this_conversation.start_date), ts_to_date(this_conversation.end_date))
 
         this_conversation.start_date = None
-        conversations[slack_user_id] = this_conversation
 
         return BotResponse(text=response_text)
 
@@ -1023,7 +995,6 @@ def chat_with_user(
             this_conversation.description is None:
         logging.debug("Description not set, asking for it")
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text="Please add a comment.")
 
     # now we seem to have all information and ask user if that's what the user wants
@@ -1144,18 +1115,17 @@ def chat_with_user(
                 response.add_block("Do you want to confirm this action?:")
 
             this_conversation.confirmation_sent = True
-            conversations[slack_user_id] = this_conversation
 
             return response
 
     if this_conversation.canceled:
-        del conversations[slack_user_id]
+        slack_user.reset_conversation()
         return BotResponse(text="Ok, action has been canceled!")
 
     if this_conversation.confirmed:
 
         # delete conversation history
-        del conversations[slack_user_id]
+        slack_user.reset_conversation()
 
         i2_handle, i2_error = setup_icinga_connection(config)
 
@@ -1181,7 +1151,7 @@ def chat_with_user(
         i2_error = None
 
         # get username to add as comment
-        this_user_info = slack_user_data.get_user_info(slack_user_id)
+        this_user_info = slack_user.data
 
         author_name = "Anonymous Slack user"
         if this_user_info is not None and this_user_info.get("real_name"):
@@ -1452,10 +1422,9 @@ def get_icinga_daemon_status(config=None, startup=False, *args, **kwargs):
 # noinspection PyUnusedLocal
 def enable_disable_action(
         config=None,
-        conversations=None,
         bot_commands=None,
         slack_message=None,
-        slack_user_id=None,
+        slack_user=None,
         *args, **kwargs):
     """
     Have a conversation with the user about the attribute the user wants to enable/disable
@@ -1464,14 +1433,12 @@ def enable_disable_action(
     ----------
     config : dict
         dictionary with items parsed from config file
-    conversations: dict
-        object to hold current state of conversation
     bot_commands: BotCommands
         class with bot commands to avoid circular imports
     slack_message : string
         slack message to parse
-    slack_user_id : string
-        slack user id
+    slack_user : SlackUser
+        SlackUser object
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -1483,17 +1450,17 @@ def enable_disable_action(
     if slack_message is None:
         logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_message", my_own_function_name()))
 
-    if slack_user_id is None:
-        logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_user_id", my_own_function_name()))
+    if slack_user is None:
+        logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_user", my_own_function_name()))
 
-    if slack_message is None or slack_user_id is None:
+    if slack_message is None or slack_user is None:
         return slack_error_response()
 
     # New conversation
-    if conversations.get(slack_user_id) is None:
-        conversations[slack_user_id] = SlackConversation(slack_user_id)
+    if slack_user.conversation is None:
+        slack_user.start_conversation()
 
-    this_conversation = conversations.get(slack_user_id)
+    this_conversation = slack_user.conversation
 
     # check or command
     if this_conversation.command is None:
@@ -1506,8 +1473,6 @@ def enable_disable_action(
             return None
 
         logging.debug("Command parsed: %s" % this_conversation.command.name)
-
-        conversations[slack_user_id] = this_conversation
 
         slack_message = this_conversation.command.strip_command(slack_message)
 
@@ -1525,8 +1490,6 @@ def enable_disable_action(
                     slack_message = this_conversation.sub_command.strip_command(slack_message)
                     logging.debug("Sub command parsed: %s" % this_conversation.sub_command.name)
 
-            conversations[slack_user_id] = this_conversation
-
     # check for filter
     if this_conversation.sub_command is not None and \
             this_conversation.sub_command.object_type != "global" and this_conversation.filter is None:
@@ -1537,7 +1500,6 @@ def enable_disable_action(
             logging.debug("Filter parsed: %s" % filter_list)
 
             this_conversation.filter = filter_list
-            conversations[slack_user_id] = this_conversation
 
     # try to find objects based on filter
     if this_conversation.filter and this_conversation.filter_result is None:
@@ -1557,17 +1519,15 @@ def enable_disable_action(
                 error_message=i2_result.error
             )
 
-        this_conversation.filter_result = i2_result.data
-        this_conversation.filter_used = i2_result.filter
-
         # save current conversation state if filter returned any objects
-        if this_conversation.filter_result and len(this_conversation.filter_result) > 0:
+        if i2_result.data and len(i2_result.data) > 0:
             logging.debug("Found %d objects to %s %s for" %
-                          (len(this_conversation.filter_result),
+                          (len(i2_result.data),
                            this_conversation.command.name,
                            this_conversation.sub_command.name))
 
-            conversations[slack_user_id] = this_conversation
+            this_conversation.filter_result = i2_result.data
+            this_conversation.filter_used = i2_result.filter
 
     # ask for sub command
     if this_conversation.sub_command is None:
@@ -1578,7 +1538,6 @@ def enable_disable_action(
             "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
             this_conversation.command.name
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # ask for missing info
@@ -1590,7 +1549,6 @@ def enable_disable_action(
             this_conversation.command.name,
             this_conversation.sub_command.name)
 
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # no objects found based on filter
@@ -1602,7 +1560,6 @@ def enable_disable_action(
                         % " ".join(this_conversation.filter)
 
         this_conversation.filter = None
-        conversations[slack_user_id] = this_conversation
         return BotResponse(text=response_text)
 
     # now we seem to have all information and ask user if that's what the user wants
@@ -1649,18 +1606,17 @@ def enable_disable_action(
             response.add_block("Do you want to confirm this action?:")
 
             this_conversation.confirmation_sent = True
-            conversations[slack_user_id] = this_conversation
 
             return response
 
     if this_conversation.canceled:
-        del conversations[slack_user_id]
+        slack_user.reset_conversation()
         return BotResponse(text="Ok, action has been canceled!")
 
     if this_conversation.confirmed:
 
         # delete conversation history
-        del conversations[slack_user_id]
+        slack_user.reset_conversation()
 
         i2_handle: object
         i2_handle, i2_error = setup_icinga_connection(config)
