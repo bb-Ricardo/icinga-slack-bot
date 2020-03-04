@@ -295,7 +295,7 @@ implemented_commands = [
                             "`com my-server ntp with NTP source currently unavailable`\n"
                             "*STRUCTURE:*\n"
                             "`com <host> <service> with <comment>` or\n"
-                            "`com <host> <host> with <comment>` or\n"
+                            "`com <host> with <comment>` or\n"
                             "`com <service> with <comment>`\n",
         "command_handler": "chat_with_user"
     },
@@ -305,7 +305,7 @@ implemented_commands = [
         "short_description": "reschedule a host/service check",
         "long_description": "This command will start a dialog to reschedule "
                             "a service or host check. This can be started with this command "
-                            "and the bot will ask for a host/service filter:\n"
+                            "and the bot will ask for a host/service filter.\n"
                             "At the end the bot will ask you for a confirmation which can "
                             "be answered with `yes` or just `y` or `no`. "
                             "After that the bot will report if the action was successful or not.\n"
@@ -315,7 +315,7 @@ implemented_commands = [
                             "`rs my-server ntp`\n"
                             "*STRUCTURE:*\n"
                             "`rs <host> <service>` or\n"
-                            "`rs <host> <host>` or\n"
+                            "`rs <host>` or\n"
                             "`rs <service>`\n",
         "command_handler": "chat_with_user"
     },
@@ -337,7 +337,7 @@ implemented_commands = [
                             "`sn my-server ntp with NTP source currently unavailable`\n"
                             "*STRUCTURE:*\n"
                             "`sn <host> <service> with <comment>` or\n"
-                            "`sn <host> <host> with <comment>` or\n"
+                            "`sn <host> with <comment>` or\n"
                             "`sn <service> with <comment>`\n",
         "command_handler": "chat_with_user"
     },
@@ -360,9 +360,9 @@ implemented_commands = [
                             "This will delay notifications for the service ntp on my-server "
                             "until 6pm the following day.\n"
                             "*STRUCTURE:*\n"
-                            "`dn <host> <service> with <time>` or\n"
-                            "`dn <host> <host> with <time>` or\n"
-                            "`dn <service> with <time>`\n",
+                            "`dn <host> <service> until <time>` or\n"
+                            "`dn <host> until <time>` or\n"
+                            "`dn <service> until <time>`\n",
         "command_handler": "chat_with_user"
     },
     {
@@ -377,12 +377,12 @@ implemented_commands = [
                             "*SORT CUT:*\n"
                             "It's also possible to short cut and just issue the "
                             "action in one command:\n"
-                            "`remove ack from ntp`\n"
-                            "This will ask remove the acknowledgement from all hosts and service with ntp\n"
+                            "`remove ack ntp`\n"
+                            "This will ask to remove the acknowledgements from all hosts and service with ntp\n"
                             "*STRUCTURE:*\n"
-                            "`remove <host> <service>` or\n"
-                            "`remove <host> <host>` or\n"
-                            "`remove <service>`\n",
+                            "`remove <subcommand> <host> <service>` or\n"
+                            "`remove <subcommand> <host>` or\n"
+                            "`remove <subcommand> <service>`\n",
         "command_handler": "chat_with_user",
         "sub_commands": remove_sub_commands
     },
