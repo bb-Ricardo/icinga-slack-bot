@@ -87,6 +87,14 @@ def chat_with_user(
         }
     }
 
+    # set defaults control vars
+    filter_end_marker = None
+    need_start_date = False
+    need_end_date = False
+    need_comment = False
+    has_sub_commands = False
+    filter_question = None
+
     if slack_message is None:
         logging.error("Parameter '%s' missing while calling function '%s'" % ("slack_message", my_own_function_name()))
 
@@ -100,56 +108,66 @@ def chat_with_user(
     if slack_user.conversation is None:
         slack_user.start_conversation()
 
-    this_conversation = slack_user.conversation
+    conversation = slack_user.conversation
 
     # check or command
-    if this_conversation.command is None:
+    if conversation.command is None:
         logging.debug("Command not set, parsing: %s" % slack_message)
-        this_conversation.command = bot_commands.get_command_called(slack_message)
+        conversation.command = bot_commands.get_command_called(slack_message)
 
-        if this_conversation.command.name not in action_commands.keys():
-            this_conversation.command = None
+        if conversation.command.name not in action_commands.keys():
+            conversation.command = None
             return None
 
-        logging.debug("Command parsed: %s" % this_conversation.command.name)
+        logging.debug("Command parsed: %s" % conversation.command.name)
 
-        slack_message = this_conversation.command.strip_command(slack_message)
+        slack_message = conversation.command.strip_command(slack_message)
 
-    if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True and \
-            this_conversation.sub_command is None:
+    if conversation.command is not None:
+
+        command_data = action_commands.get(conversation.command.name)
+
+        if command_data is not None:
+            # update control vars
+            filter_end_marker = command_data.get("filter_end_marker", None)
+            need_start_date = command_data.get("need_start_date", False)
+            need_end_date = command_data.get("need_end_date", False)
+            need_comment = command_data.get("need_comment", False)
+            has_sub_commands = command_data.get("has_sub_commands", False)
+            filter_question = command_data.get("filter_question", None)
+
+    if has_sub_commands is True and conversation.sub_command is None:
 
         if len(slack_message) != 0:
             # we got a filter
             logging.debug("Sub command not set, parsing: %s" % slack_message)
 
-            if this_conversation.command.has_sub_commands():
-                this_conversation.sub_command = \
-                    this_conversation.command.sub_commands.get_command_called(slack_message)
+            if conversation.command.has_sub_commands():
+                conversation.sub_command = \
+                    conversation.command.sub_commands.get_command_called(slack_message)
 
-                if this_conversation.sub_command:
-                    slack_message = this_conversation.sub_command.strip_command(slack_message)
-                    logging.debug("Sub command parsed: %s" % this_conversation.sub_command.name)
+                if conversation.sub_command:
+                    slack_message = conversation.sub_command.strip_command(slack_message)
+                    logging.debug("Sub command parsed: %s" % conversation.sub_command.name)
 
     # check for filter
-    if this_conversation.filter is None:
+    if conversation.filter is None:
         if len(quoted_split(string_to_split=slack_message)) != 0:
             # we got a filter
             logging.debug("Filter not set, parsing: %s" % slack_message)
 
-            index_string = action_commands.get(this_conversation.command.name).get("filter_end_marker")
-
             split_slack_message = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
             #  everything left of the index string will be parsed as filter
-            if index_string is not None and index_string in [s.lower() for s in split_slack_message]:
+            if filter_end_marker is not None and filter_end_marker in [s.lower() for s in split_slack_message]:
 
-                index = [s.lower() for s in split_slack_message].index(index_string)
+                index = [s.lower() for s in split_slack_message].index(filter_end_marker)
 
                 # get end of filter list
                 filter_list = split_slack_message[0:index]
 
                 # strip index string from slack message on comments
-                if index_string == "with":
+                if filter_end_marker == "with":
                     index += 1
 
                 # strip the filter from the supplied string
@@ -164,58 +182,58 @@ def chat_with_user(
             logging.debug("Filter parsed: %s" % filter_list)
 
             if len(filter_list) > 0:
-                this_conversation.filter = filter_list
+                conversation.filter = filter_list
 
     # split slack_message into an array (chat message array)
     cma = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
     # try to find objects based on filter
-    if this_conversation.filter and this_conversation.filter_result is None:
+    if conversation.filter and conversation.filter_result is None:
 
         logging.debug("Filter result list empty. Query Icinga for objects.")
 
         host_filter = list()
         service_filter = list()
-        if this_conversation.command.name == "acknowledge":
+        if conversation.command.name == "acknowledge":
             host_filter = ["host.state != 0"]
             service_filter = ["service.state != 0"]
 
         # query hosts and services
-        if len(this_conversation.filter) == 1:
+        if len(conversation.filter) == 1:
 
             object_type = "Host"
-            if this_conversation.sub_command is not None:
-                if this_conversation.sub_command.name == "Downtime":
+            if conversation.sub_command is not None:
+                if conversation.sub_command.name == "Downtime":
                     object_type = "HostDowntime"
                 else:
                     object_type = "HostComment"
 
-            i2_result = get_i2_object(config, object_type, host_filter, this_conversation.filter)
+            i2_result = get_i2_object(config, object_type, host_filter, conversation.filter)
 
             if i2_result.error is None and len(i2_result.data) == 0:
                 object_type = "Service"
-                if this_conversation.sub_command is not None:
-                    if this_conversation.sub_command.name == "downtime":
+                if conversation.sub_command is not None:
+                    if conversation.sub_command.name == "downtime":
                         object_type = "ServiceDowntime"
                     else:
                         object_type = "ServiceComment"
 
-                i2_result = get_i2_object(config, object_type, service_filter, this_conversation.filter)
+                i2_result = get_i2_object(config, object_type, service_filter, conversation.filter)
 
         # just query services
         else:
             object_type = "Service"
-            if this_conversation.sub_command is not None:
-                if this_conversation.sub_command.name == "downtime":
+            if conversation.sub_command is not None:
+                if conversation.sub_command.name == "downtime":
                     object_type = "ServiceDowntime"
                 else:
                     object_type = "ServiceComment"
 
-            i2_result = get_i2_object(config, object_type, service_filter, this_conversation.filter)
+            i2_result = get_i2_object(config, object_type, service_filter, conversation.filter)
 
         # encountered Icinga request issue
         if i2_result.error:
-            logging.debug("No icinga objects found for filter: %s" % this_conversation.filter)
+            logging.debug("No icinga objects found for filter: %s" % conversation.filter)
 
             return slack_error_response(
                 header="Icinga request error while trying to find matching hosts/services",
@@ -224,23 +242,23 @@ def chat_with_user(
             )
 
         # we can set a downtime for all objects no matter their state
-        if this_conversation.sub_command is not None:
+        if conversation.sub_command is not None:
 
-            if this_conversation.sub_command.name == "downtime" and len(i2_result.data) > 0:
-                this_conversation.filter_result = i2_result.data
+            if conversation.sub_command.name == "downtime" and len(i2_result.data) > 0:
+                conversation.filter_result = i2_result.data
             else:
                 # filter results based on sub command name
                 ack_filter_result = list()
                 for result in i2_result.data:
-                    if this_conversation.sub_command.name == "comment" and result.get("entry_type") == 1:
+                    if conversation.sub_command.name == "comment" and result.get("entry_type") == 1:
                         ack_filter_result.append(result)
-                    if this_conversation.sub_command.name == "acknowledgement" and result.get("entry_type") == 4:
+                    if conversation.sub_command.name == "acknowledgement" and result.get("entry_type") == 4:
                         ack_filter_result.append(result)
 
                 if len(ack_filter_result) > 0:
-                    this_conversation.filter_result = ack_filter_result
+                    conversation.filter_result = ack_filter_result
 
-        elif this_conversation.command.name == "acknowledge" and len(i2_result.data) > 0:
+        elif conversation.command.name == "acknowledge" and len(i2_result.data) > 0:
 
             # only objects which are not acknowledged can be acknowledged
             ack_filter_result = list()
@@ -250,27 +268,26 @@ def chat_with_user(
                     ack_filter_result.append(result)
 
             if len(ack_filter_result) > 0:
-                this_conversation.filter_result = ack_filter_result
+                conversation.filter_result = ack_filter_result
 
         else:
-            this_conversation.filter_result = i2_result.data
+            conversation.filter_result = i2_result.data
 
         # save current conversation state if filter returned any objects
-        if this_conversation.filter_result and len(this_conversation.filter_result) > 0:
+        if conversation.filter_result and len(conversation.filter_result) > 0:
             sub_command_name = ""
-            if this_conversation.sub_command is not None:
-                sub_command_name = f" {this_conversation.sub_command.name}"
+            if conversation.sub_command is not None:
+                sub_command_name = f" {conversation.sub_command.name}"
 
             logging.debug("Found %d objects for command %s%s" %
-                          (len(this_conversation.filter_result), this_conversation.command.name, sub_command_name))
+                          (len(conversation.filter_result), conversation.command.name, sub_command_name))
 
-            this_conversation.object_type = object_type
+            conversation.object_type = object_type
         else:
-            this_conversation.filter_result = None
+            conversation.filter_result = None
 
     # parse start time information for downtime
-    if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
-            this_conversation.start_date is None and this_conversation.filter_result is not None:
+    if need_start_date is True and conversation.start_date is None and conversation.filter_result is not None:
 
         if len(cma) != 0:
 
@@ -304,16 +321,15 @@ def chat_with_user(
 
                 # get timestamp from returned datetime object
                 if start_date_data.get("dt"):
-                    this_conversation.start_date = start_date_data.get("dt").timestamp()
+                    conversation.start_date = start_date_data.get("dt").timestamp()
 
                 if len(cma) >= 1 and cma[0].lower() != "until":
                     cma = date_string_parse[start_date_data.get("mend"):].strip().split(" ")
             else:
-                this_conversation.start_date_parsing_failed = date_string_parse
+                conversation.start_date_parsing_failed = date_string_parse
 
     # parse end time information
-    if action_commands.get(this_conversation.command.name).get("need_end_date") is True and \
-            this_conversation.end_date is None and this_conversation.filter_result is not None:
+    if need_end_date is True and conversation.end_date is None and conversation.filter_result is not None:
 
         if len(cma) != 0:
 
@@ -330,7 +346,7 @@ def chat_with_user(
 
             if len(cma) >= 1 and cma[0].lower() in ["never", "infinite"]:
                 # add rest of message as description
-                this_conversation.end_date = -1
+                conversation.end_date = -1
                 del cma[0]
 
             else:
@@ -341,181 +357,175 @@ def chat_with_user(
 
                     # get timestamp from returned datetime object
                     if end_date_data.get("dt"):
-                        this_conversation.end_date = end_date_data.get("dt").timestamp()
+                        conversation.end_date = end_date_data.get("dt").timestamp()
 
                     # add rest of string back to cma
                     cma = string_parse[end_date_data.get("mend"):].strip().split(" ")
                 else:
-                    this_conversation.end_date_parsing_failed = string_parse
+                    conversation.end_date_parsing_failed = string_parse
 
-    if action_commands.get(this_conversation.command.name).get("need_comment") is True and \
-            this_conversation.description is None and this_conversation.filter_result is not None:
+    if need_comment is True and conversation.description is None and conversation.filter_result is not None:
 
         if len(cma) != 0 and len("".join(cma).strip()) != 0:
             logging.debug("Description not set, parsing: %s" % " ".join(cma))
 
-            this_conversation.description = " ".join(cma)
+            conversation.description = " ".join(cma)
             cma = list()
 
     # ask for sub command
-    if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True and \
-            this_conversation.sub_command is None:
+    if has_sub_commands is True and conversation.sub_command is None:
 
         logging.debug("Sub command not set, asking for it")
 
         response_text = \
             "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
-            this_conversation.command.name
+            conversation.command.name
 
         return BotResponse(text=response_text)
 
     # ask for missing info
-    if this_conversation.filter is None:
+    if conversation.filter is None:
 
         logging.debug("Filter not set, asking for it")
 
-        response_text = action_commands.get(this_conversation.command.name).get("filter_question")
+        if has_sub_commands is True:
+            filter_question = filter_question.format(conversation.sub_command.name)
 
-        if action_commands.get(this_conversation.command.name).get("has_sub_commands", False) is True:
-            response_text = response_text.format(this_conversation.sub_command.name)
-
-        return BotResponse(text=response_text)
+        return BotResponse(text=filter_question)
 
     # no objects found based on filter
-    if this_conversation.filter_result is None:
+    if conversation.filter_result is None:
         problematic = ""
 
         logging.debug("Icinga2 object request returned empty, asking for a different filter")
 
-        if this_conversation.command.name == "acknowledge":
+        if conversation.command.name == "acknowledge":
             problematic = " problematic"
 
         object_text = "hosts or services"
-        if this_conversation.sub_command is not None:
-            object_text = this_conversation.sub_command.name
+        if conversation.sub_command is not None:
+            object_text = conversation.sub_command.name
 
         response_text = "Sorry, I was not able to find any%s %s for your search '%s'. Try again." \
-                        % (problematic, object_text, " ".join(this_conversation.filter))
+                        % (problematic, object_text, " ".join(conversation.filter))
 
-        this_conversation.filter = None
+        conversation.filter = None
         return BotResponse(text=response_text)
 
     # ask for not parsed start time
-    if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
-            this_conversation.start_date is None:
+    if need_start_date is True and conversation.start_date is None:
 
-        if not this_conversation.start_date_parsing_failed:
+        if not conversation.start_date_parsing_failed:
             logging.debug("Start date not set, asking for it")
             response_text = "When should the downtime start?"
         else:
             logging.debug("Failed to parse start date, asking again for it")
             response_text = "Sorry, I was not able to understand the start date '%s'. Try again please." \
-                            % this_conversation.start_date_parsing_failed
+                            % conversation.start_date_parsing_failed
 
         return BotResponse(text=response_text)
 
     # ask for not parsed end date
-    if action_commands.get(this_conversation.command.name).get("need_end_date") is True and \
-            this_conversation.end_date is None:
+    if need_end_date is True and conversation.end_date is None:
 
-        if not this_conversation.end_date_parsing_failed:
+        if not conversation.end_date_parsing_failed:
 
             logging.debug("End date not set, asking for it")
 
-            if this_conversation.command.name == "acknowledge":
+            if conversation.command.name == "acknowledge":
                 response_text = "When should the acknowledgement expire? Or never?"
             else:
                 response_text = "When should the downtime end?"
         else:
             logging.debug("Failed to parse end date, asking again for it")
             response_text = "Sorry, I was not able to understand the end date '%s'. Try again please." \
-                            % this_conversation.end_date_parsing_failed
+                            % conversation.end_date_parsing_failed
 
         return BotResponse(text=response_text)
 
-    if this_conversation.end_date and this_conversation.end_date != -1 and \
-            this_conversation.end_date - 60 < datetime.now().timestamp():
+    if conversation.end_date and conversation.end_date != -1 and \
+            conversation.end_date - 60 < datetime.now().timestamp():
         logging.debug("End date is already in the past. Ask user again for end date")
 
         response_text = "Sorry, end date '%s' lies (almost) in the past. Please define a valid end/expire date." % \
-                        ts_to_date(this_conversation.end_date)
+                        ts_to_date(conversation.end_date)
 
-        this_conversation.end_date = None
+        conversation.end_date = None
 
         return BotResponse(text=response_text)
 
-    if action_commands.get(this_conversation.command.name).get("need_start_date") is True and \
-            this_conversation.start_date > this_conversation.end_date:
+    if need_start_date is True and conversation.start_date > conversation.end_date:
+
         logging.debug("Start date is after end date for downtime. Ask user again for start date.")
 
         response_text = "Sorry, start date '%s' can't be after and date '%s'. When should the downtime start?" % \
-                        (ts_to_date(this_conversation.start_date), ts_to_date(this_conversation.end_date))
+                        (ts_to_date(conversation.start_date), ts_to_date(conversation.end_date))
 
-        this_conversation.start_date = None
+        conversation.start_date = None
 
         return BotResponse(text=response_text)
 
-    if action_commands.get(this_conversation.command.name).get("need_comment") is True and \
-            this_conversation.description is None:
+    if need_comment is True and conversation.description is None:
+
         logging.debug("Description not set, asking for it")
 
         return BotResponse(text="Please add a comment.")
 
     # now we seem to have all information and ask user if that's what the user wants
-    if not this_conversation.confirmed:
+    if not conversation.confirmed:
 
-        if this_conversation.confirmation_sent:
+        if conversation.confirmation_sent:
             if cma[0].startswith("y") or cma[0].startswith("Y"):
-                this_conversation.confirmed = True
+                conversation.confirmed = True
             elif cma[0].startswith("n") or cma[0].startswith("N"):
-                this_conversation.canceled = True
+                conversation.canceled = True
             else:
                 # see if user tried to filter the selection (i.e.: 1,2)
-                if this_conversation.sub_command is not None:
+                if conversation.sub_command is not None:
                     selection_list = [x.strip() for x in " ".join(cma).split(",")]
                     if len(selection_list) > 0:
                         objects_to_keep = list()
                         for selection in selection_list:
                             try:
-                                objects_to_keep.append(this_conversation.filter_result[int(selection) - 1])
+                                objects_to_keep.append(conversation.filter_result[int(selection) - 1])
                             except Exception:
                                 pass
 
                         if len(objects_to_keep) > 0:
-                            this_conversation.filter_result = objects_to_keep
+                            conversation.filter_result = objects_to_keep
 
-                this_conversation.confirmation_sent = False
+                conversation.confirmation_sent = False
 
-        if not this_conversation.confirmation_sent:
+        if not conversation.confirmation_sent:
 
             # get object type
-            if this_conversation.command.name == "acknowledge":
+            if conversation.command.name == "acknowledge":
                 command = "Acknowledgement"
             else:
-                command = this_conversation.command.name.capitalize()
+                command = conversation.command.name.capitalize()
 
-            confirmation_type = this_conversation.object_type
-            if this_conversation.sub_command is not None:
-                confirmation_type = this_conversation.sub_command.name
+            confirmation_type = conversation.object_type
+            if conversation.sub_command is not None:
+                confirmation_type = conversation.sub_command.name
 
             confirmation = {
                 "Command": command,
                 "Type": confirmation_type
             }
-            if action_commands.get(this_conversation.command.name).get("need_start_date") is True:
-                confirmation["Start"] = ts_to_date(this_conversation.start_date)
-                confirmation["End"] = ts_to_date(this_conversation.end_date)
+            if need_start_date is True:
+                confirmation["Start"] = ts_to_date(conversation.start_date)
+                confirmation["End"] = ts_to_date(conversation.end_date)
 
-            elif this_conversation.command.name == "acknowledge":
-                confirmation["Expire"] = "Never" if this_conversation.end_date == -1 else ts_to_date(
-                    this_conversation.end_date)
+            elif conversation.command.name == "acknowledge":
+                confirmation["Expire"] = "Never" if conversation.end_date == -1 else ts_to_date(
+                    conversation.end_date)
 
-            elif this_conversation.command.name == "delay notification":
-                confirmation["Delayed until"] = "Never" if this_conversation.end_date == -1 else ts_to_date(
-                    this_conversation.end_date)
+            elif conversation.command.name == "delay notification":
+                confirmation["Delayed until"] = "Never" if conversation.end_date == -1 else ts_to_date(
+                    conversation.end_date)
 
-            if action_commands.get(this_conversation.command.name).get("need_comment") is True:
-                confirmation["Comment"] = this_conversation.description
+            if need_comment is True:
+                confirmation["Comment"] = conversation.description
 
             confirmation["Objects"] = ""
 
@@ -526,16 +536,16 @@ def chat_with_user(
                 confirmation_fields.append(">*%s*: %s" % (title, value))
 
             object_num = 0
-            for i2_object in this_conversation.filter_result[0:10]:
+            for i2_object in conversation.filter_result[0:10]:
                 object_num += 1
                 host_name = service_name = comment_text = author = None
                 bullet_text = "•"
 
-                if this_conversation.object_type == "Service":
+                if conversation.object_type == "Service":
                     host_name = i2_object.get("host_name")
                     service_name = i2_object.get("name")
 
-                elif "Comment" in this_conversation.object_type or "Downtime" in this_conversation.object_type:
+                elif "Comment" in conversation.object_type or "Downtime" in conversation.object_type:
 
                     bullet_text = f"{object_num}."
                     host_name = i2_object.get("host_name")
@@ -567,26 +577,26 @@ def chat_with_user(
 
                 confirmation_fields.append(u">\t%s %s" % (bullet_text, object_text))
 
-            if len(this_conversation.filter_result) > 10:
-                confirmation_fields.append(">\t... and %d more" % (len(this_conversation.filter_result) - 10))
+            if len(conversation.filter_result) > 10:
+                confirmation_fields.append(">\t... and %d more" % (len(conversation.filter_result) - 10))
             response.add_block("\n".join(confirmation_fields))
 
-            if this_conversation.sub_command is not None:
+            if conversation.sub_command is not None:
                 response.add_block("Do you want to confirm this action (yes|no)\n"
                                    "or do you want to select single/multiple %s (i.e.: 1,2)?:" %
-                                   this_conversation.sub_command.name)
+                                   conversation.sub_command.name)
             else:
                 response.add_block("Do you want to confirm this action?:")
 
-            this_conversation.confirmation_sent = True
+            conversation.confirmation_sent = True
 
             return response
 
-    if this_conversation.canceled:
+    if conversation.canceled:
         slack_user.reset_conversation()
         return BotResponse(text="Ok, action has been canceled!")
 
-    if this_conversation.confirmed:
+    if conversation.confirmed:
 
         # delete conversation history
         slack_user.reset_conversation()
@@ -603,11 +613,11 @@ def chat_with_user(
 
         # define filters
         filter_list = list()
-        if this_conversation.object_type == "Host":
-            for i2_object in this_conversation.filter_result:
+        if conversation.object_type == "Host":
+            for i2_object in conversation.filter_result:
                 filter_list.append('host.name=="%s"' % i2_object.get("name"))
         else:
-            for i2_object in this_conversation.filter_result:
+            for i2_object in conversation.filter_result:
                 filter_list.append('( host.name=="%s" && service.name=="%s" )' %
                                    (i2_object.get("host_name"), i2_object.get("name")))
 
@@ -625,95 +635,95 @@ def chat_with_user(
 
         try:
 
-            if this_conversation.command.name == "downtime":
+            if conversation.command.name == "downtime":
 
                 logging.debug("Sending Downtime to Icinga2")
 
                 success_message = "Successfully scheduled downtime!"
 
                 i2_response = i2_handle.actions.schedule_downtime(
-                    object_type=this_conversation.object_type,
+                    object_type=conversation.object_type,
                     filters=icinga2_filters,
                     author=author_name,
-                    comment=this_conversation.description,
-                    start_time=this_conversation.start_date,
-                    end_time=this_conversation.end_date,
-                    duration=this_conversation.end_date - this_conversation.start_date,
+                    comment=conversation.description,
+                    start_time=conversation.start_date,
+                    end_time=conversation.end_date,
+                    duration=conversation.end_date - conversation.start_date,
                     all_services=True
                 )
 
-            elif this_conversation.command.name == "acknowledge":
+            elif conversation.command.name == "acknowledge":
                 logging.debug("Sending Acknowledgement to Icinga2")
 
                 success_message = "Successfully acknowledged %s problem%s!" % \
-                                  (this_conversation.object_type, plural(len(filter_list)))
+                                  (conversation.object_type, plural(len(filter_list)))
 
                 i2_response = i2_handle.actions.acknowledge_problem(
-                    object_type=this_conversation.object_type,
+                    object_type=conversation.object_type,
                     filters=icinga2_filters,
                     author=author_name,
-                    comment=this_conversation.description,
-                    expiry=None if this_conversation.end_date == -1 else this_conversation.end_date,
+                    comment=conversation.description,
+                    expiry=None if conversation.end_date == -1 else conversation.end_date,
                     sticky=True
                 )
 
-            elif this_conversation.command.name == "comment":
+            elif conversation.command.name == "comment":
                 logging.debug("Sending Comment to Icinga2")
 
                 success_message = "Successfully added %s comment%s!" % \
-                                  (this_conversation.object_type, plural(len(filter_list)))
+                                  (conversation.object_type, plural(len(filter_list)))
 
                 i2_response = i2_handle.actions.add_comment(
-                    object_type=this_conversation.object_type,
+                    object_type=conversation.object_type,
                     filters=icinga2_filters,
                     author=author_name,
-                    comment=this_conversation.description
+                    comment=conversation.description
                 )
 
-            elif this_conversation.command.name == "reschedule":
+            elif conversation.command.name == "reschedule":
                 logging.debug("Sending reschedule check to Icinga2")
 
                 success_message = "Successfully rescheduled %s check%s!" % \
-                                  (this_conversation.object_type, plural(len(filter_list)))
+                                  (conversation.object_type, plural(len(filter_list)))
 
                 i2_response = i2_handle.actions.reschedule_check(
-                    object_type=this_conversation.object_type,
+                    object_type=conversation.object_type,
                     filters=icinga2_filters,
                 )
 
-            elif this_conversation.command.name == "send notification":
+            elif conversation.command.name == "send notification":
                 logging.debug("Sending custom notification to Icinga2")
 
                 success_message = "Successfully sent %s notification%s!" % \
-                                  (this_conversation.object_type, plural(len(filter_list)))
+                                  (conversation.object_type, plural(len(filter_list)))
 
                 i2_response = i2_handle.actions.send_custom_notification(
-                    object_type=this_conversation.object_type,
+                    object_type=conversation.object_type,
                     filters=icinga2_filters,
                     author=author_name,
-                    comment=this_conversation.description
+                    comment=conversation.description
                 )
 
-            elif this_conversation.command.name == "delay notification":
+            elif conversation.command.name == "delay notification":
                 logging.debug("Sending delay notification to Icinga2")
 
                 success_message = "Successfully delayed %s notification%s!" % \
-                                  (this_conversation.object_type, plural(len(filter_list)))
+                                  (conversation.object_type, plural(len(filter_list)))
 
                 i2_response = i2_handle.actions.delay_notification(
-                    object_type=this_conversation.object_type,
+                    object_type=conversation.object_type,
                     filters=icinga2_filters,
-                    timestamp=this_conversation.end_date
+                    timestamp=conversation.end_date
                 )
-            elif this_conversation.command.name == "remove":
+            elif conversation.command.name == "remove":
 
-                logging.debug(f"Sending remove {this_conversation.sub_command.name} to Icinga2")
+                logging.debug(f"Sending remove {conversation.sub_command.name} to Icinga2")
 
-                success_message = f"Successfully removed {this_conversation.sub_command.name}!"
+                success_message = f"Successfully removed {conversation.sub_command.name}!"
 
-                if this_conversation.sub_command.name == "acknowledgement":
+                if conversation.sub_command.name == "acknowledgement":
 
-                    for acknowledgement in this_conversation.filter_result:
+                    for acknowledgement in conversation.filter_result:
 
                         this_object_type = "Host"
                         this_filter = 'host.name=="%s"' % acknowledgement.get("host_name")
@@ -726,9 +736,9 @@ def chat_with_user(
                             filters=this_filter,
                         )
 
-                if this_conversation.sub_command.name == "comment":
+                if conversation.sub_command.name == "comment":
 
-                    for comment in this_conversation.filter_result:
+                    for comment in conversation.filter_result:
                         name = "!".join(
                             [comment.get("host_name"), comment.get("service_name"), comment.get("name")]
                         ).replace("!!", "!")
@@ -738,9 +748,9 @@ def chat_with_user(
                             filters=None  # bug in icinga2apic
                         )
 
-                if this_conversation.sub_command.name == "downtime":
+                if conversation.sub_command.name == "downtime":
 
-                    for downtime in this_conversation.filter_result:
+                    for downtime in conversation.filter_result:
                         name = "!".join(
                             [downtime.get("host_name"), downtime.get("service_name"), downtime.get("name")]
                         ).replace("!!", "!")
