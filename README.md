@@ -8,9 +8,9 @@ used to narrow down the returned status list.
 
 ## Requirements
 * python >= 3.6
-* python-slackclient >= 2.0.0
+* python-slackclient >= 2.5.0
 * certifi >= 2018
-* icinga2apic >= 0.7.1
+* icinga2apic >= 0.7.2
 * ctparse >= 0.0.38
 * Icinga2 instance with API feature enabled
 
@@ -92,8 +92,15 @@ object ApiUser "icinga-bot" {
 For further details check the [Icinga2 API documentation](https://icinga.com/docs/icinga2/latest/doc/12-icinga2-api)
 
 ### Get Slack Bot Token
-[Here](https://www.fullstackpython.com/blog/build-first-slack-bot-python.html)
-you can find a quick and helpful example on how to acquire a slack bot API token.
+You need to install a [Classic Slack Bot](https://api.slack.com/apps?new_classic_app=1) app
+in order to use RTM.
+1. Just give it a name and select the workspace.
+2. Go to "App Home" and use the **Add legacy Bot User** button
+3. Add a display name and the bot username like "icinga2"
+4. Go to "OAuth & Permissions" and use the **Install App to Workspace** button
+5. Confirm this in the bottom by selecting **Allow**
+6. Use the displayed **Bot User OAuth Access Token** to add to your config
+
 You can also use [this](contrib/icinga2_logo.png) icon to represent the bot in Slack properly.
 
 ## Configuration
@@ -289,7 +296,26 @@ dt <service> from <time> until <time> <comment>
 ![bot had issues starting](docs/bot_start_failure.png)
 
 ## Alert notification
-To get Slack notifications if something goes wrong you can check out the notification handlers in [contrib](contrib)
+To get Slack notifications if something goes wrong you can check out the
+notification handlers in [contrib](contrib).
+
+Copy [slack-notification.sh](contrib/slack-notification.sh) to `/etc/icinga2/scripts/`
+and add the [icinga2_slack_notification_commands.conf](contrib/icinga2_slack_notification_commands.conf)
+to your icinga configuration (depends on your where you need to put this)
+
+More information here: [Icinga2 Docs -> notifications](https://icinga.com/docs/icinga2/latest/doc/03-monitoring-basics/#notifications).
+
+Don't forget to set `NOTIFICATION_CONFIG` in
+*icinga2_slack_notification_commands.conf* to the full path to your bot config file.
+
+### Slack WEBHOOK URL
+In order to send alarms to Slack you need a Webhook URL.
+1. In your Slack Bot settings use **Incoming Webhooks** under **Features**.
+2. Switch **Activate Incoming Webhooks** to **On**
+3. Use **Add New Webhook to Workspace**
+4. Select the channel the alert messages should be posted to.
+5. Now you should have a Webhook URL you need to copy to your configuration
+
 
 ### Alert examples
 ![alert host down](docs/notification_host_down.png)

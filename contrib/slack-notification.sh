@@ -23,9 +23,9 @@ else
     exit 1
 fi
 
-SLACK_WEBHOOK_URL=$(${GREP} "\s*webhook_url" "${CONFIG_FILE}" | ${SED} 's/\s*webhook_url\s*=\s*//')
-SLACK_DEFAULT_CHANNEL=$(${GREP} "\s*default_channel" "${CONFIG_FILE}" | ${SED} 's/\s*default_channel\s*=\s*//')
-ICINGAWEB2_URL=$(${GREP} "\s*web2_url" "${CONFIG_FILE}" | ${SED} 's/\s*web2_url\s*=\s*//')
+SLACK_WEBHOOK_URL=$(${GREP} "^\s*webhook_url" "${CONFIG_FILE}" | ${SED} 's/\s*webhook_url\s*=\s*//')
+SLACK_DEFAULT_CHANNEL=$(${GREP} "^\s*default_channel" "${CONFIG_FILE}" | ${SED} 's/\s*default_channel\s*=\s*//')
+ICINGAWEB2_URL=$(${GREP} "^\s*web2_url" "${CONFIG_FILE}" | ${SED} 's/\s*web2_url\s*=\s*//')
 
 if [[ ${OBJECTTYPE} == "HOST" ]]; then
     #Set the message icon based on ICINGA Host state

@@ -1,4 +1,4 @@
 certifi>=2018
-slackclient>=2.0.0
-icinga2apic>=0.7.1
+slackclient>=2.5.0
+icinga2apic>=0.7.2
 ctparse>=0.0.38
