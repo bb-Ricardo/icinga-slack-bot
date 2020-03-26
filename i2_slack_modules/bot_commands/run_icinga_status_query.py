@@ -159,8 +159,13 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
                         text += " (handled)"
                         attachment_color = None
 
+                # take care of pending status which don't have a check result
+                status_output = None
+                if icinga_object.get("last_check_result") is not None:
+                    status_output = icinga_object.get("last_check_result").get("output")
+
                 object_fields = {
-                    "Output": icinga_object.get("last_check_result").get("output"),
+                    "Output": f"{status_output}",
                     "Last state change": ts_to_date(icinga_object.get("last_state_change")),
                     "Status": this_state.name,
                     "Acknowledged": yes_no(icinga_object.get("acknowledgement")),

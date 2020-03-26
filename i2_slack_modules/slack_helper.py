@@ -80,6 +80,11 @@ def format_slack_response(config, object_type="Host", result_objects=None, comme
         for result_object in result_objects:
             last_check = result_object.get("last_check_result")
 
+            # take care of pending status which don't have a check result
+            output = None
+            if last_check is not None:
+                output = last_check.get("output")
+
             # get comments for this object
             if object_type is "Host":
                 object_comment_downtime_list = \
@@ -115,7 +120,7 @@ def format_slack_response(config, object_type="Host", result_objects=None, comme
                     state_emoji=icinga_states.value(result_object.get("state"), object_type).icon,
                     url=get_web2_slack_url(result_object.get("name"), web2_url=config["icinga.web2_url"]),
                     additional_info=append_to_title,
-                    output=last_check.get("output")
+                    output=f"{output}"
                 )
 
                 response_objects.append(text)
@@ -146,7 +151,7 @@ def format_slack_response(config, object_type="Host", result_objects=None, comme
                     state_emoji=icinga_states.value(result_object.get("state"), object_type).icon,
                     url=get_web2_slack_url(current_host, result_object.get("name"), web2_url=config["icinga.web2_url"]),
                     additional_info=append_to_title,
-                    output=last_check.get("output")
+                    output=f"{output}"
                 )
 
                 service_list.append(service_text)
