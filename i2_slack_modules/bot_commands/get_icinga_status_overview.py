@@ -32,7 +32,11 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
         "UP": data.get("num_hosts_up"),
         "DOWN": data.get("num_hosts_down"),
         "UNREACHABLE": data.get("num_hosts_unreachable"),
-        "UNHANDLED": int(data.get("num_hosts_problem") - data.get("num_hosts_handled")),
+        "UNHANDLED": int(
+            data.get("num_hosts_problem") -
+            data.get("num_hosts_acknowledged") -
+            data.get("num_hosts_in_downtime")
+        ),
         "ACKNOWLEDGED": data.get("num_hosts_acknowledged"),
         "IN DOWNTIME": data.get("num_hosts_in_downtime")
     }
@@ -42,7 +46,11 @@ def get_icinga_status_overview(config=None, *args, **kwargs):
         "WARNING": data.get("num_services_warning"),
         "CRITICAL": data.get("num_services_critical"),
         "UNKNOWN": data.get("num_services_unknown"),
-        "UNHANDLED": int(data.get("num_services_problem") - data.get("num_services_handled")),
+        "UNHANDLED": int(
+            data.get("num_services_problem") -
+            data.get("num_services_acknowledged") -
+            data.get("num_services_in_downtime")
+        ),
         "ACKNOWLEDGED": data.get("num_services_acknowledged"),
         "IN DOWNTIME": data.get("num_services_in_downtime")
     }
