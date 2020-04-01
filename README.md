@@ -73,8 +73,8 @@ docker run -d -v /PATH/TO/icinga-bot.ini:/app/icinga-bot.ini --name bot icinga-b
 
 ### Icinga API permissions
 * necessary API permissions
-  * objects/query/Host
-  * objects/query/Service
+  * objects/query/*
+  * objects/modify/*
   * status/query
   * actions/*
 
@@ -85,7 +85,7 @@ This would be an Icinga Slack bot API user
 object ApiUser "icinga-bot" {
   password = "icinga"
 
-  permissions = [ "objects/query/Host", "objects/query/Service", "status/query", "actions/*" ]
+  permissions = [ "objects/query/*", "objects/modify/*", "status/query", "actions/*" ]
 }
 ```
 
