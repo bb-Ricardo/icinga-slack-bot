@@ -325,6 +325,7 @@ if __name__ == "__main__":
     # set up slack ssl context
     slack_ssl_context = ssl_lib.create_default_context(cafile=certifi.where())
 
+    """
     # get command handler and call it to get startup message
     icinga_status_command = BotCommands().get_command_called("icinga status").get_command_handler()
 
@@ -339,7 +340,7 @@ if __name__ == "__main__":
     if post_response.error:
         do_error_exit("Error while posting startup message to slack (%s): %s" %
                       (config["slack.default_channel"], post_response.error))
-
+    """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     rtm_client = slack.RTMClient(

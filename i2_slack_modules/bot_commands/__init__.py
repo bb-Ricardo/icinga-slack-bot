@@ -8,3 +8,4 @@ from .reset_conversation import reset_conversation
 from .run_icinga_status_query import run_icinga_status_query
 from .slack_command_help import slack_command_help
 from .slack_command_ping import slack_command_ping
+from .show_command import show_command

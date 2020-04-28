@@ -190,7 +190,7 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
                     if comment.get("expire_time") is not None and comment.get("expire_time") > 0:
                         comment_text += " (expires: {})".format(ts_to_date(comment.get("expire_time")))
 
-                    object_fields[comment_title] = comment_text
+                    object_fields[comment_title] = f"`{comment_text}`"
 
                 # add downtime info to object attachment
                 for downtime in object_downtime_list:
@@ -207,7 +207,7 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
                             downtime.get("duration") / 60,
                             ts_to_date(downtime.get("start_time")), ts_to_date(downtime.get("end_time")))
 
-                    object_fields[downtime_title] = downtime_text
+                    object_fields[downtime_title] = f"`{downtime_text}`"
 
                 fields = list()
                 for title, value in object_fields.items():

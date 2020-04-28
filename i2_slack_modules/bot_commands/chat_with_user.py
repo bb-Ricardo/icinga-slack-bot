@@ -203,7 +203,7 @@ def chat_with_user(
 
             object_type = "Host"
             if conversation.sub_command is not None:
-                if conversation.sub_command.name == "Downtime":
+                if conversation.sub_command.name == "downtime":
                     object_type = "HostDowntime"
                 else:
                     object_type = "HostComment"

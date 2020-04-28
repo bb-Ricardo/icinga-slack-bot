@@ -13,7 +13,8 @@ from i2_slack_modules.bot_commands import (
     slack_command_help,
     chat_with_user,
     get_icinga_daemon_status,
-    enable_disable_action
+    enable_disable_action,
+    show_command
 )
 import logging
 from typing import Callable, Tuple, Optional
@@ -111,7 +112,7 @@ enable_disable_sub_commands = [
     }
 ]
 
-remove_sub_commands = [
+comment_based_sub_commands = [
     {
         "name": "acknowledgement",
         "shortcut": "ack"
@@ -384,7 +385,24 @@ implemented_commands = [
                             "`remove <subcommand> <host>` or\n"
                             "`remove <subcommand> <service>`\n",
         "command_handler": "chat_with_user",
-        "sub_commands": remove_sub_commands
+        "sub_commands": comment_based_sub_commands
+    },
+    {
+        "name": "show",
+        "shortcut": "sh",
+        "short_description": "show a comment/downtime/acknowledgement",
+        "long_description": "This command will show a comment/downtime/acknowledgement.\n"
+                            "*SORT CUT:*\n"
+                            "It's also possible to short cut and just issue the "
+                            "action in one command:\n"
+                            "`show ack ntp`\n"
+                            "This will show the acknowledgements from all hosts and service with ntp\n"
+                            "*STRUCTURE:*\n"
+                            "`show <subcommand> <host> <service>` or\n"
+                            "`show <subcommand> <host>` or\n"
+                            "`show <subcommand> <service>`\n",
+        "command_handler": "show_command",
+        "sub_commands": comment_based_sub_commands
     },
     {
         "name": "reset",
