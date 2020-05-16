@@ -189,6 +189,16 @@ Also just parts of host and service names can be used to search for objects
 (service.state == 2) && ( match("*test*", host.name) && match("*web*", service.name) ) || ( match("*web*", host.name) && match("*test*", service.name) )
 `
 
+#### Using previous filter
+Sometime you try to tackle a problem and get tired of entering the filter every time. In this case you can use `!!` which defaults
+to last commands filter.
+
+Example:
+
+You are checking the service status with `ss myserver ntp`. And then you want to reschedule this service.
+Instead of adding the filter again you can write `rs !!` which translates into `rs myserver ntp`.
+This works for all commands using filters.
+
 ### Actions
 Actions have been added to perform certain actions on hosts or services.
 Current actions are `Acknowledgements` and `Downtimes`.

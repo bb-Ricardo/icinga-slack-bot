@@ -140,7 +140,7 @@ class SlackConversation:
 
 class SlackUser:
 
-    last_conversation = None
+    last_filter = None
     conversation = None
     id = None
     data = dict()
@@ -153,13 +153,24 @@ class SlackUser:
 
     def reset_conversation(self):
         if self.conversation is not None:
-            self.last_conversation = self.conversation
             self.conversation = None
 
     def start_conversation(self):
 
         if self.conversation is None:
             self.conversation = SlackConversation()
+
+    def add_last_filter(self, filter_expression):
+        self.last_filter = filter_expression
+
+    def get_last_user_filter_if_requested(self, filter_expression):
+        if len(filter_expression) == 1 and filter_expression[0] == "!!":
+            if self.last_filter is None:
+                filter_expression = list()
+            else:
+                filter_expression = self.last_filter
+            logging.debug("Parsed '!!', using slack users previous filter: %s" % filter_expression)
+        return filter_expression
 
 
 class SlackUsers:

@@ -8,7 +8,11 @@ max_messages_to_display_detailed_status = 4
 
 
 # noinspection PyUnusedLocal
-def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, *args, **kwargs):
+def run_icinga_status_query(config=None,
+                            slack_message=None,
+                            bot_commands=None,
+                            slack_user=None,
+                            *args, **kwargs):
     """
     Query Icinga2 to get host/service status based on Slack command
 
@@ -25,6 +29,8 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
         the Slack command which will be parsed
     bot_commands: BotCommands
         class with bot commands to avoid circular imports
+    slack_user : SlackUser
+        SlackUser object
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -65,6 +71,8 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
 
     i2_filter_status, i2_filter_names, i2_filter_error = get_i2_filter(status_type, slack_message)
 
+    i2_filter_names = slack_user.get_last_user_filter_if_requested(i2_filter_names)
+
     # inform user about the filter mistake
     if i2_filter_error:
 
@@ -91,6 +99,8 @@ def run_icinga_status_query(config=None, slack_message=None, bot_commands=None, 
         downtime = None
         if display_just_unhandled_objects_for_default_query and len(i2_filter_names) == 0:
             acknowledged = downtime = False
+
+        slack_user.add_last_filter(i2_filter_names)
 
         i2_response = get_i2_object(config, status_type, i2_filter_status, i2_filter_names, acknowledged, downtime)
         i2_comments_response = get_i2_object(config, f"{status_type}Comment", i2_filter_status, i2_filter_names)

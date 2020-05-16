@@ -83,9 +83,12 @@ def enable_disable_action(
 
             filter_list = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
+            filter_list = slack_user.get_last_user_filter_if_requested(filter_list)
+
             logging.debug("Filter parsed: %s" % filter_list)
 
             this_conversation.filter = filter_list
+            slack_user.add_last_filter(this_conversation.filter)
 
     # try to find objects based on filter
     if this_conversation.filter and this_conversation.filter_result is None:

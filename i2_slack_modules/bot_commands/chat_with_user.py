@@ -179,10 +179,13 @@ def chat_with_user(
                 filter_list = split_slack_message
                 slack_message = ""
 
+            filter_list = slack_user.get_last_user_filter_if_requested(filter_list)
+
             logging.debug("Filter parsed: %s" % filter_list)
 
             if len(filter_list) > 0:
                 conversation.filter = filter_list
+                slack_user.add_last_filter(conversation.filter)
 
     # split slack_message into an array (chat message array)
     cma = quoted_split(string_to_split=slack_message, preserve_quotations=True)

@@ -9,6 +9,7 @@ def show_command(
         config=None,
         bot_commands=None,
         slack_message=None,
+        slack_user=None,
         *args, **kwargs):
     """
     Have a conversation with the user about the action the user wants to perform
@@ -21,6 +22,8 @@ def show_command(
         class with bot commands to avoid circular imports
     slack_message : string
         slack message to parse
+    slack_user : SlackUser
+        SlackUser object
     args, kwargs: None
         used to hold additional args which are just ignored
 
@@ -64,6 +67,8 @@ def show_command(
 
     split_slack_message = quoted_split(string_to_split=slack_message, preserve_quotations=True)
 
+    split_slack_message = slack_user.get_last_user_filter_if_requested(split_slack_message)
+
     logging.debug("Filter parsed: %s" % split_slack_message)
 
     if called_sub_command.name == "downtime":
@@ -106,6 +111,8 @@ def show_command(
         if len(split_slack_message) > 0:
             response_text += " for " + " and ".join(split_slack_message)
         return BotResponse(text=response_text)
+
+    slack_user.add_last_filter(split_slack_message)
 
     result_list = sorted(result_list, key=lambda k: (k['host_name'], k['service_name'], k['entry_time']))
 
