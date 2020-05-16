@@ -137,6 +137,18 @@ class SlackConversation:
                  user_id=None):
         self.user_id = user_id
 
+    def get_path(self):
+        path_list = list()
+        if self.command is not None:
+            path_list.append(self.command.shortcut)
+        if self.sub_command is not None:
+            path_list.append(self.sub_command.shortcut)
+
+        if len(path_list) > 0:
+            return "`%s:` " % "/".join(path_list)
+        else:
+            return ""
+
 
 class SlackUser:
 

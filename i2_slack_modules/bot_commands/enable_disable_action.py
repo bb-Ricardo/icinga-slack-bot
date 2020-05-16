@@ -124,8 +124,8 @@ def enable_disable_action(
         logging.debug("Sub command not set, asking for it")
 
         response_text = \
-            "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
-            this_conversation.command.name
+            "%sSorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
+            (this_conversation.get_path(), this_conversation.command.name)
 
         return BotResponse(text=response_text)
 
@@ -134,7 +134,8 @@ def enable_disable_action(
 
         logging.debug("Filter not set, asking for it")
 
-        response_text = "For which object do you want to %s %s?" % (
+        response_text = "%sFor which object do you want to %s %s?" % (
+            this_conversation.get_path(),
             this_conversation.command.name,
             this_conversation.sub_command.name)
 
@@ -145,8 +146,8 @@ def enable_disable_action(
 
         logging.debug("Icinga2 object request returned empty, asking for a different filter")
 
-        response_text = "Sorry, I was not able to find any hosts or services for your search '%s'. Try again." \
-                        % " ".join(this_conversation.filter)
+        response_text = "%sSorry, I was not able to find any hosts or services for your search '%s'. Try again." \
+                        % (this_conversation.get_path(), " ".join(this_conversation.filter))
 
         this_conversation.filter = None
         return BotResponse(text=response_text)
@@ -200,7 +201,7 @@ def enable_disable_action(
 
     if this_conversation.canceled:
         slack_user.reset_conversation()
-        return BotResponse(text="Ok, action has been canceled!")
+        return BotResponse(text="%sOk, action has been canceled!" % this_conversation.get_path())
 
     if this_conversation.confirmed:
 

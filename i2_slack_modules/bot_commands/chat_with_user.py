@@ -381,8 +381,8 @@ def chat_with_user(
         logging.debug("Sub command not set, asking for it")
 
         response_text = \
-            "Sorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
-            conversation.command.name
+            "%sSorry, I wasn't able to parse your sub command. Check `help %s` to get available sub commands" % \
+            (conversation.get_path(), conversation.command.name)
 
         return BotResponse(text=response_text)
 
@@ -393,6 +393,8 @@ def chat_with_user(
 
         if has_sub_commands is True:
             filter_question = filter_question.format(conversation.sub_command.name)
+
+        filter_question = "%s%s" % (conversation.get_path(), filter_question)
 
         return BotResponse(text=filter_question)
 
@@ -409,8 +411,8 @@ def chat_with_user(
         if conversation.sub_command is not None:
             object_text = conversation.sub_command.name
 
-        response_text = "Sorry, I was not able to find any%s %s for your search '%s'. Try again." \
-                        % (problematic, object_text, " ".join(conversation.filter))
+        response_text = "%sSorry, I was not able to find any%s %s for your search '%s'. Try again." \
+                        % (conversation.get_path(), problematic, object_text, " ".join(conversation.filter))
 
         conversation.filter = None
         return BotResponse(text=response_text)
@@ -425,6 +427,8 @@ def chat_with_user(
             logging.debug("Failed to parse start date, asking again for it")
             response_text = "Sorry, I was not able to understand the start date '%s'. Try again please." \
                             % conversation.start_date_parsing_failed
+
+        response_text = "%s%s" % (conversation.get_path(), response_text)
 
         return BotResponse(text=response_text)
 
@@ -444,6 +448,8 @@ def chat_with_user(
             response_text = "Sorry, I was not able to understand the end date '%s'. Try again please." \
                             % conversation.end_date_parsing_failed
 
+        response_text = "%s%s" % (conversation.get_path(), response_text)
+
         return BotResponse(text=response_text)
 
     if conversation.end_date and conversation.end_date != -1 and \
@@ -452,6 +458,8 @@ def chat_with_user(
 
         response_text = "Sorry, end date '%s' lies (almost) in the past. Please define a valid end/expire date." % \
                         ts_to_date(conversation.end_date)
+
+        response_text = "%s%s" % (conversation.get_path(), response_text)
 
         conversation.end_date = None
 
@@ -464,6 +472,8 @@ def chat_with_user(
         response_text = "Sorry, start date '%s' can't be after and date '%s'. When should the downtime start?" % \
                         (ts_to_date(conversation.start_date), ts_to_date(conversation.end_date))
 
+        response_text = "%s%s" % (conversation.get_path(), response_text)
+
         conversation.start_date = None
 
         return BotResponse(text=response_text)
@@ -472,7 +482,9 @@ def chat_with_user(
 
         logging.debug("Description not set, asking for it")
 
-        return BotResponse(text="Please add a comment.")
+        response_text = "%sPlease add a comment." % conversation.get_path()
+
+        return BotResponse(text=response_text)
 
     # now we seem to have all information and ask user if that's what the user wants
     if not conversation.confirmed:
@@ -597,7 +609,7 @@ def chat_with_user(
 
     if conversation.canceled:
         slack_user.reset_conversation()
-        return BotResponse(text="Ok, action has been canceled!")
+        return BotResponse(text="%sOk, action has been canceled!" % conversation.get_path())
 
     if conversation.confirmed:
 
