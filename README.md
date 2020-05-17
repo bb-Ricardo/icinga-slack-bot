@@ -117,7 +117,7 @@ It can be used to interact with Icinga2 from your Slack client. It uses the
 Icinga2 API to get Host/Service status details. Simple status filters can be
 used to narrow down the returned status list.
 
-Version: 0.2.0 (2019-11-16)
+Version: 1.0.0 (2020-05-17)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -146,23 +146,39 @@ Following commands are currently implemented:
 >acknowledge problematic hosts or services
 * downtime (dt)
 >set a downtime for hosts/services
+* comment (com)
+>add a comment to hosts/services
+* reschedule (rs)
+>reschedule a host/service check
+* send notification (sn)
+>send a costum host/service notification
+* delay notification (dn)
+>delay host/service notifications
+* show (sh)
+>show a comment/downtime/acknowledgement
+* remove (rm)
+>remove a comment/downtime/acknowledgement
 * reset (abort)
->abort current action (ack/dt)
+>abort current action (ack/dt/ena/disa/sh/rm)
 * icinga status (is)
 >print current Icinga status details
+* enable (ena)
+>enable an action
+* disable (disa)
+>disable an action
 
 ### Help command
 Each command also provides a detailed help `help <command>`
 
 ### Command status filter
 Following command filters are implemented
-* host status
+* host status (hs)
   * up
   * down
   * unreachable (unreach)
   * all
   * problems
-* service status
+* service status (ss)
   * ok
   * warning (warn)
   * critical (crit)
@@ -188,6 +204,10 @@ Also just parts of host and service names can be used to search for objects
 `
 (service.state == 2) && ( match("*test*", host.name) && match("*web*", service.name) ) || ( match("*web*", host.name) && match("*test*", service.name) )
 `
+
+**HINT:**
+You can also use quotes in your filter to find services containing spaces like:<br>
+`ss server "network interfaces"`
 
 #### Using previous filter
 Sometime you try to tackle a problem and get tired of entering the filter every time. In this case you can use `!!` which defaults
@@ -220,9 +240,9 @@ After that the bot will report if the action was successful or not.
 ##### SORT CUT:
 It's also possible to short cut the whole Q/A and just issue the action in one command:
 ```
-ack my-server ntp until tomorrow evening Wrong ntp config, needs update
+ack myserver ntp until tomorrow evening Wrong ntp config, needs update
 ```
-This will acknowledge a problematic service ntp on my-server until 6pm the following day.
+This will acknowledge a problematic service ntp on myserver until 6pm the following day.
 
 ##### STRUCTURE:
 ```
@@ -244,9 +264,9 @@ will ask for a downtime start. Here it's also possible to use a relative time fo
 ##### SORT CUT:
 It's also possible to short cut the whole Q/A and just issue the action in one command:
 ```
-dt my-server ntp from now until tomorrow evening NTP update
+dt myserver ntp from now until tomorrow evening NTP update
 ```
-This will set a downtime for the service ntp on my-server until 6pm the following day.
+This will set a downtime for the service ntp on myserver until 6pm the following day.
 
 ##### STRUCTURE:
 ```
@@ -270,13 +290,16 @@ dt <service> from <time> until <time> <comment>
 * ```ss warn crit ntp``` will display all services which match "ntp" and are in state CRITICAL or WARNING
 * ```ss``` will display all services which currently have a problem
 
-* ```ack my-server ntp until tomorrow evening Wrong ntp config, will be updated tomorrow``` will acknowledge a problematic service ntp on my-server until 6pm the following day
+* ```ack myserver ntp until tomorrow evening Wrong ntp config, will be updated tomorrow``` will acknowledge a problematic service ntp on myserver until 6pm the following day
 
 ***Important:***
 * The [detailed](#all-problematic-services) view will only be used if there are **1 to 4** status results
 
 #### Help
 ![help example](docs/bot_help_answer.png)
+
+#### Help for command enable
+![help enable](docs/bot_help_enable.png)
 
 #### Detailed host status example
 ![detailed host answer](docs/bot_detailed_host_answer.png)
@@ -296,6 +319,9 @@ dt <service> from <time> until <time> <comment>
 
 #### Acknowledge service problem
 ![ack_service_problem](docs/bot_ack_service.png)
+
+#### Disable notifications global
+![disable_notifications_global](docs/bot_disable_notifications_global.png)
 
 #### Icinga status
 ![icinga_status](docs/bot_icinga_status.png)

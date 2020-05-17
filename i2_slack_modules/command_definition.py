@@ -426,8 +426,8 @@ implemented_commands = [
         "name": "enable",
         "shortcut": "ena",
         "short_description": "enable an action",
-        "long_description": "This command will enable active or passive checks, notifications or event handlers"
-                            "globally, hosts or services.",
+        "long_description": "This command will enable active or passive checks, notifications or event handlers\n"
+                            "either globally or for a hosts or a services.",
         "command_handler": "enable_disable_action",
         "sub_commands": enable_disable_sub_commands
     },
@@ -435,8 +435,8 @@ implemented_commands = [
         "name": "disable",
         "shortcut": "disa",
         "short_description": "disable an action",
-        "long_description": "This command will disable active or passive checks, notifications or event handlers"
-                            "globally, hosts or services.",
+        "long_description": "This command will disable active or passive checks, notifications or event handlers\n"
+                            "either globally or for a hosts or a services.",
         "command_handler": "enable_disable_action",
         "sub_commands": enable_disable_sub_commands
     }

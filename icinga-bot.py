@@ -31,8 +31,8 @@ from i2_slack_modules.slack_helper import slack_error_response
 from i2_slack_modules import slack_max_message_blocks, slack_max_message_text_length
 
 
-__version__ = "0.2.0"
-__version_date__ = "2019-11-16"
+__version__ = "1.0.0"
+__version_date__ = "2020-05-17"
 __author__ = "Ricardo Bartels <ricardo@bitchbrothers.com>"
 __description__ = "Icinga2 Slack Bot"
 __license__ = "MIT"
