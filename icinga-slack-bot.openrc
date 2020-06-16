@@ -1,0 +1,33 @@
+#!/sbin/openrc-run
+# Copyright 2020 Ricardo Bartels
+# Distributed under the terms of the MIT license
+
+: ${BOT_DIR:="/opt/${RC_SVCNAME}"}
+: ${BOT_CONF:="${BOT_DIR}/icinga-bot.ini"}
+: ${BOT_OPTS:="\"${BOT_DIR}/icinga-bot.py\" -c \"${BOT_CONF}\""}
+: ${BOT_USER:=nobody}
+: ${BOT_GROUP:=nobody}
+: ${BOT_TIMEOUT:=5}
+: ${BOT_LOG:="/var/log/${RC_SVCNAME}.log"}
+
+command="${BOT_DIR}/.pyenv/bin/python3"
+command_args="${BOT_OPTS}"
+command_background="true"
+command_user="${BOT_USER}:${BOT_GROUP}"
+pidfile="/run/${RC_SVCNAME}.pid"
+retry="${BOT_TIMEOUT}"
+description="Icinga2 Slack bot"
+
+start_stop_daemon_args="--chdir \"${BOT_DIR}\" -1 \"${BOT_LOG}\" -2 \"${BOT_LOG}\""
+
+depend() {
+	need net
+}
+
+start_pre() {
+	touch "${BOT_LOG}"
+	chmod 640 "${BOT_LOG}"
+	chown "${BOT_USER}:${BOT_GROUP}" "${BOT_LOG}"
+}
+
+# EOF

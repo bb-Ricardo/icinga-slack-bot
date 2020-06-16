@@ -46,6 +46,7 @@ Change config options according your environment.
 After you entered the Slack tokens you should be able to start the bot.
 
 ### Run as a service
+#### systemd
 * a [systemd unit file](icinga-slack-bot.service) is included
 but needs to be changed if the installation path is different
 
@@ -54,6 +55,16 @@ sudo cp icinga-slack-bot.service /etc/systemd/system
 sudo systemctl daemon-reload
 sudo systemctl start icinga-slack-bot
 sudo systemctl enable icinga-slack-bot
+```
+
+#### openrc
+* a [openrc init file](icinga-slack-bot.openrc) is included
+but needs to be changed if the installation path is different
+
+```
+sudo install -m 755 -g root -o root icinga-slack-bot.openrc /etc/init.d/icinga-slack-bot
+sudo rc-service icinga-slack-bot start
+sudo rc-update add icinga-slack-bot default
 ```
 
 ### Run with Docker
