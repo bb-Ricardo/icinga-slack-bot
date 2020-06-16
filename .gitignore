@@ -6,3 +6,6 @@
 
 # python cache
 __pycache__
+
+# default config path
+icinga-bot.ini
