@@ -57,6 +57,7 @@ mention_regex = "^<@(|[WU].+?)>(.*)"
 args = None
 config = None
 user_info = SlackUsers()
+my_user_id = None
 
 
 #################
@@ -92,11 +93,6 @@ async def handle_command(slack_message, slack_user=None):
     response = None
 
     default_response_text = "I didn't understand the command. Please use `help` for more details."
-
-    # strip any mention "strings" from beginning of message
-    matches = re.search(mention_regex, slack_message)
-    if matches:
-        slack_message = matches.group(2).strip()
 
     bot_commands = BotCommands()
     called_command = bot_commands.get_command_called(slack_message)
@@ -144,6 +140,20 @@ async def handle_command(slack_message, slack_user=None):
     return response
 
 
+@slack.RTMClient.run_on(event="open")
+async def client_start_handler(**payload):
+    """read web socket info and retrieve own user id
+
+    Parameters
+    ----------
+    payload : object
+        Slack payload to parse
+
+    """
+    global my_user_id
+    my_user_id = payload.get('data').get('self').get("id")
+
+
 # noinspection PyUnresolvedReferences
 @slack.RTMClient.run_on(event="message")
 async def message(**payload):
@@ -166,6 +176,7 @@ async def message(**payload):
     if data.get("text") is not None:
         channel_id = data.get("channel")
         bot_id = data.get("bot_id")
+        slack_message = data.get("text")
 
         # don't answer if message was sent by a bot
         if bot_id is not None:
@@ -173,11 +184,21 @@ async def message(**payload):
 
         logging.debug("Received new Slack message: %s" % data.get("text"))
 
+        # strip any mention "strings" from beginning of message
+        matches = re.search(mention_regex, slack_message)
+        if matches:
+
+            if matches.group(1) != my_user_id:
+                logging.debug("This message was not for me. Ignoring.")
+                return
+
+            slack_message = matches.group(2).strip()
+
         # noinspection PyTypeChecker
         user_info.set_web_handle(web_client)
 
         # parse command
-        response = await handle_command(data.get("text"), user_info.get(data.get("user")))
+        response = await handle_command(slack_message, user_info.get(data.get("user")))
 
         slack_api_response = post_slack_message(web_client, channel_id, response)
 
